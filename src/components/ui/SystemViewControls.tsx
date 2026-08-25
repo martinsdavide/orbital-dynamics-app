@@ -77,7 +77,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
           <Compass className="w-3.5 h-3.5 text-cyan-400" />
           <span>Coordinate Reference Frame</span>
         </label>
-        <div className="grid grid-cols-3 gap-1 bg-gray-900/90 p-1 rounded-xl border border-gray-800 text-xs">
+        <div className="grid grid-cols-2 gap-1 bg-gray-900/90 p-1 rounded-xl border border-gray-800 text-xs">
           <button
             onClick={() => onChangeFrame('heliocentric')}
             className={`py-1.5 rounded-lg text-center font-medium transition-all ${
@@ -97,16 +97,6 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
             }`}
           >
             Geocentric
-          </button>
-          <button
-            onClick={() => onChangeFrame('barycentric')}
-            className={`py-1.5 rounded-lg text-center font-medium transition-all ${
-              referenceFrame === 'barycentric'
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            Barycentric
           </button>
         </div>
       </div>

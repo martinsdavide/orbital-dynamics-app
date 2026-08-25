@@ -1,4 +1,4 @@
-export type ReferenceFrame = 'heliocentric' | 'geocentric' | 'barycentric';
+export type ReferenceFrame = 'heliocentric' | 'geocentric';
 export type ScaleMode = 'visual' | 'true';
 
 export interface Vector3D {

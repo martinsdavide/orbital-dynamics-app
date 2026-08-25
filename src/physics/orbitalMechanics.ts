@@ -203,17 +203,6 @@ export function transformToSceneCoordinates(
       y: posMeters.y - ephemeris.earth.position.y,
       z: posMeters.z - ephemeris.earth.position.z,
     };
-  } else if (referenceFrame === 'barycentric') {
-    const baryMass = EARTH.mass + MOON.mass;
-    const baryX = (EARTH.mass * ephemeris.earth.position.x + MOON.mass * ephemeris.moon.position.x) / baryMass;
-    const baryY = (EARTH.mass * ephemeris.earth.position.y + MOON.mass * ephemeris.moon.position.y) / baryMass;
-    const baryZ = (EARTH.mass * ephemeris.earth.position.z + MOON.mass * ephemeris.moon.position.z) / baryMass;
-
-    relPos = {
-      x: posMeters.x - baryX,
-      y: posMeters.y - baryY,
-      z: posMeters.z - baryZ,
-    };
   }
 
   if (scaleMode === 'visual') {
