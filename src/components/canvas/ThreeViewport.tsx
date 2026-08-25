@@ -21,7 +21,10 @@ interface ThreeViewportProps {
   referenceFrame: ReferenceFrame;
   scaleMode: ScaleMode;
   showLagrangePoints: boolean;
-  showOrbitLines: boolean;
+  showEarthOrbit: boolean;
+  showMoonOrbit: boolean;
+  showComposedMoonSunOrbit: boolean;
+  showDynamicTrails: boolean;
   showLunarSOI: boolean;
   showAtmosphereGlow: boolean;
   selectedSpaceport: Spaceport;
@@ -37,7 +40,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   ephemeris,
   referenceFrame,
   showLagrangePoints,
-  showOrbitLines,
+  showEarthOrbit,
+  showMoonOrbit,
+  showComposedMoonSunOrbit,
+  showDynamicTrails,
   showLunarSOI,
   showAtmosphereGlow,
   selectedSpaceport,
@@ -61,9 +67,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const moonMeshRef = useRef<THREE.Mesh | null>(null);
   const lunarSOIMeshRef = useRef<THREE.Mesh | null>(null);
 
+  // Orbit Line Refs
   const earthOrbitLineRef = useRef<THREE.Line | null>(null);
   const moonOrbitLineRef = useRef<THREE.Line | null>(null);
+  const composedMoonSunLineRef = useRef<THREE.Line | null>(null);
   const lagrangeGroupRef = useRef<THREE.Group | null>(null);
+
+  // Dynamic Live Trail Breadcrumb Refs
+  const earthDynamicTrailLineRef = useRef<THREE.Line | null>(null);
+  const moonDynamicTrailLineRef = useRef<THREE.Line | null>(null);
+  const earthTrailPositionsRef = useRef<THREE.Vector3[]>([]);
+  const moonTrailPositionsRef = useRef<THREE.Vector3[]>([]);
 
   const rocketGroupRef = useRef<THREE.Group | null>(null);
   const exhaustParticlesRef = useRef<THREE.Points | null>(null);
@@ -82,7 +96,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   useEffect(() => {
     if (!mountRef.current) return;
 
-    // Clean any prior children (prevents duplicate canvases on React StrictMode remount)
     while (mountRef.current.firstChild) {
       mountRef.current.removeChild(mountRef.current.firstChild);
     }
@@ -104,8 +117,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         powerPreference: 'high-performance',
         alpha: false,
       });
-    } catch (e) {
-      console.warn('Fallback WebGL initialization', e);
+    } catch {
       renderer = new THREE.WebGLRenderer({ antialias: false });
     }
 
@@ -290,13 +302,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       lagrangeGroup.add(lpMarker);
     });
 
-    // Orbit Lines
+    // 1. Earth Orbit Line (Heliocentric)
     const earthOrbitPts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 128; i++) {
-      const theta = (i / 128) * Math.PI * 2;
+    for (let i = 0; i <= 256; i++) {
+      const theta = (i / 256) * Math.PI * 2;
       earthOrbitPts.push(
         new THREE.Vector3(
-          Math.cos(theta) * SCALING.visual.sunEarthDistance - 280,
+          Math.cos(theta) * SCALING.visual.sunEarthDistance,
           0,
           Math.sin(theta) * SCALING.visual.sunEarthDistance
         )
@@ -304,17 +316,56 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
     const earthOrbitGeo = new THREE.BufferGeometry().setFromPoints(earthOrbitPts);
     const earthOrbitMat = new THREE.LineBasicMaterial({
-      color: 0x3b82f6,
+      color: 0x06b6d4, // Bright Cyan
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.6,
+      linewidth: 2,
     });
     const earthOrbitLine = new THREE.Line(earthOrbitGeo, earthOrbitMat);
     scene.add(earthOrbitLine);
     earthOrbitLineRef.current = earthOrbitLine;
 
+    // 2. Composed Lunar Orbit around the Sun (13.37-Cycle Cycloid Wave Path)
+    const composedMoonPts: THREE.Vector3[] = [];
+    const totalYearSteps = 1000;
+    const moonToEarthRatio = EARTH.orbitalPeriod / MOON.orbitalPeriod; // ~13.368 lunar cycles/year
+    const rSE = SCALING.visual.sunEarthDistance;
+    const rEM = SCALING.visual.earthMoonDistance;
+
+    for (let i = 0; i <= totalYearSteps; i++) {
+      const thetaE = (i / totalYearSteps) * Math.PI * 2;
+      const thetaM = thetaE * moonToEarthRatio + 0.5;
+
+      const earthX = Math.cos(thetaE) * rSE;
+      const earthZ = Math.sin(thetaE) * rSE;
+
+      const moonRelX = Math.cos(thetaM) * rEM;
+      const moonRelZ = Math.sin(thetaM) * rEM;
+      const moonRelY = Math.sin(thetaM) * (rEM * Math.tan(MOON.inclinationToEcliptic));
+
+      composedMoonPts.push(
+        new THREE.Vector3(
+          earthX + moonRelX,
+          moonRelY,
+          earthZ + moonRelZ
+        )
+      );
+    }
+    const composedMoonGeo = new THREE.BufferGeometry().setFromPoints(composedMoonPts);
+    const composedMoonMat = new THREE.LineBasicMaterial({
+      color: 0xf43f5e, // Hot Rose / Magenta
+      transparent: true,
+      opacity: 0.75,
+      linewidth: 2,
+    });
+    const composedMoonSunLine = new THREE.Line(composedMoonGeo, composedMoonMat);
+    scene.add(composedMoonSunLine);
+    composedMoonSunLineRef.current = composedMoonSunLine;
+
+    // 3. Moon Orbit Line around Earth (Geocentric)
     const moonOrbitPts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 96; i++) {
-      const theta = (i / 96) * Math.PI * 2;
+    for (let i = 0; i <= 128; i++) {
+      const theta = (i / 128) * Math.PI * 2;
       const x = Math.cos(theta) * SCALING.visual.earthMoonDistance;
       const z = Math.sin(theta) * SCALING.visual.earthMoonDistance;
       const y = Math.sin(theta) * (SCALING.visual.earthMoonDistance * Math.tan(MOON.inclinationToEcliptic));
@@ -322,13 +373,37 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
     const moonOrbitGeo = new THREE.BufferGeometry().setFromPoints(moonOrbitPts);
     const moonOrbitMat = new THREE.LineBasicMaterial({
-      color: 0xa855f7,
+      color: 0xa855f7, // Purple
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.7,
+      linewidth: 2,
     });
     const moonOrbitLine = new THREE.Line(moonOrbitGeo, moonOrbitMat);
     earthGroup.add(moonOrbitLine);
     moonOrbitLineRef.current = moonOrbitLine;
+
+    // 4. Live Dynamic Motion Breadcrumbs Trails
+    const earthTrailGeo = new THREE.BufferGeometry();
+    const earthTrailMat = new THREE.LineBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.85,
+      linewidth: 2,
+    });
+    const earthDynamicTrailLine = new THREE.Line(earthTrailGeo, earthTrailMat);
+    scene.add(earthDynamicTrailLine);
+    earthDynamicTrailLineRef.current = earthDynamicTrailLine;
+
+    const moonTrailGeo = new THREE.BufferGeometry();
+    const moonTrailMat = new THREE.LineBasicMaterial({
+      color: 0xf43f5e,
+      transparent: true,
+      opacity: 0.9,
+      linewidth: 2,
+    });
+    const moonDynamicTrailLine = new THREE.Line(moonTrailGeo, moonTrailMat);
+    scene.add(moonDynamicTrailLine);
+    moonDynamicTrailLineRef.current = moonDynamicTrailLine;
 
     // Rocket 3D Model
     const rocketGroup = new THREE.Group();
@@ -458,7 +533,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     resizeObserver.observe(mountRef.current);
     window.addEventListener('resize', handleResize);
 
-    // Initial resize trigger
     handleResize();
 
     let animId: number;
@@ -537,9 +611,18 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const moonZ = Math.sin(moonAngle) * emDistScale;
     const moonY = Math.sin(moonAngle) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
 
+    let currentEarthWorldPos = new THREE.Vector3(0, 0, 0);
+    let currentMoonWorldPos = new THREE.Vector3(0, 0, 0);
+
     if (referenceFrame === 'heliocentric') {
       const earthAngle = (ephemeris.timeSeconds / EARTH.orbitalPeriod) * (2 * Math.PI);
       const sunDist = SCALING.visual.sunEarthDistance;
+      currentEarthWorldPos.set(Math.cos(earthAngle) * sunDist, 0, Math.sin(earthAngle) * sunDist);
+      currentMoonWorldPos.set(
+        currentEarthWorldPos.x + moonX,
+        moonY,
+        currentEarthWorldPos.z + moonZ
+      );
 
       if (sunMeshRef.current && sunLightRef.current) {
         sunMeshRef.current.position.set(0, 0, 0);
@@ -548,24 +631,78 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
 
       if (earthGroupRef.current) {
-        earthGroupRef.current.position.set(Math.cos(earthAngle) * sunDist, 0, Math.sin(earthAngle) * sunDist);
+        earthGroupRef.current.position.copy(currentEarthWorldPos);
+      }
+      if (moonGroupRef.current) {
+        moonGroupRef.current.position.copy(currentMoonWorldPos);
+        moonGroupRef.current.visible = appMode !== 'launch';
+      }
+
+      // Center heliocentric orbit lines at Sun (0, 0, 0)
+      if (earthOrbitLineRef.current) {
+        earthOrbitLineRef.current.position.set(0, 0, 0);
+        earthOrbitLineRef.current.visible = showEarthOrbit && appMode === 'system';
+      }
+      if (composedMoonSunLineRef.current) {
+        composedMoonSunLineRef.current.position.set(0, 0, 0);
+        composedMoonSunLineRef.current.visible = showComposedMoonSunOrbit && appMode === 'system';
       }
     } else {
+      // Geocentric / Barycentric
+      currentEarthWorldPos.set(0, 0, 0);
+      currentMoonWorldPos.set(moonX, moonY, moonZ);
+
       if (earthGroupRef.current) {
         earthGroupRef.current.position.set(0, 0, 0);
+      }
+      if (moonGroupRef.current) {
+        moonGroupRef.current.position.set(moonX, moonY, moonZ);
+        moonGroupRef.current.visible = appMode !== 'launch';
       }
       if (sunMeshRef.current && sunLightRef.current) {
         sunMeshRef.current.position.set(-280, 0, 0);
         sunLightRef.current.position.set(-280, 0, 0);
         sunMeshRef.current.visible = appMode === 'system';
       }
+
+      // Offset heliocentric trails relative to Sun in geocentric view
+      if (earthOrbitLineRef.current) {
+        earthOrbitLineRef.current.position.set(-280, 0, 0);
+        earthOrbitLineRef.current.visible = showEarthOrbit && appMode === 'system';
+      }
+      if (composedMoonSunLineRef.current) {
+        composedMoonSunLineRef.current.position.set(-280, 0, 0);
+        composedMoonSunLineRef.current.visible = showComposedMoonSunOrbit && appMode === 'system';
+      }
     }
 
-    if (moonGroupRef.current) {
-      moonGroupRef.current.position.set(moonX, moonY, moonZ);
-      moonGroupRef.current.visible = appMode !== 'launch';
+    // Record Live Dynamic Motion Trails
+    if (showDynamicTrails && appMode === 'system') {
+      earthTrailPositionsRef.current.push(currentEarthWorldPos.clone());
+      moonTrailPositionsRef.current.push(currentMoonWorldPos.clone());
+
+      if (earthTrailPositionsRef.current.length > 500) earthTrailPositionsRef.current.shift();
+      if (moonTrailPositionsRef.current.length > 500) moonTrailPositionsRef.current.shift();
+
+      if (earthDynamicTrailLineRef.current && earthTrailPositionsRef.current.length > 2) {
+        earthDynamicTrailLineRef.current.geometry.setFromPoints(earthTrailPositionsRef.current);
+        earthDynamicTrailLineRef.current.visible = true;
+      }
+      if (moonDynamicTrailLineRef.current && moonTrailPositionsRef.current.length > 2) {
+        moonDynamicTrailLineRef.current.geometry.setFromPoints(moonTrailPositionsRef.current);
+        moonDynamicTrailLineRef.current.visible = true;
+      }
+    } else {
+      if (earthDynamicTrailLineRef.current) earthDynamicTrailLineRef.current.visible = false;
+      if (moonDynamicTrailLineRef.current) moonDynamicTrailLineRef.current.visible = false;
     }
 
+    // Moon Orbit around Earth (purple)
+    if (moonOrbitLineRef.current) {
+      moonOrbitLineRef.current.visible = showMoonOrbit && appMode !== 'launch';
+    }
+
+    // Body Rotations
     if (earthMeshRef.current) {
       earthMeshRef.current.rotation.y = ephemeris.earth.rotationAngle;
     }
@@ -580,13 +717,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       lunarSOIMeshRef.current.visible = showLunarSOI && appMode !== 'launch';
     }
 
-    if (earthOrbitLineRef.current) {
-      earthOrbitLineRef.current.visible = showOrbitLines && referenceFrame === 'heliocentric' && appMode === 'system';
-    }
-    if (moonOrbitLineRef.current) {
-      moonOrbitLineRef.current.visible = showOrbitLines && appMode !== 'launch';
-    }
-
     if (lagrangeGroupRef.current) {
       lagrangeGroupRef.current.visible = showLagrangePoints && appMode === 'system';
       ephemeris.lagrangePoints.forEach((lp) => {
@@ -595,7 +725,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           const dir = lp.position;
           const mag = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
           const scaledMag = (mag / MOON.semiMajorAxis) * SCALING.visual.earthMoonDistance;
-          marker.position.set((dir.x / mag) * scaledMag, (dir.y / mag) * scaledMag, (dir.z / mag) * scaledMag);
+          marker.position.set(
+            currentEarthWorldPos.x + (dir.x / mag) * scaledMag,
+            currentEarthWorldPos.y + (dir.y / mag) * scaledMag,
+            currentEarthWorldPos.z + (dir.z / mag) * scaledMag
+          );
         }
       });
     }
@@ -698,10 +832,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
 
     if (cameraPreset === 'earth') {
-      cameraTargetRef.current.set(0, 0, 0);
+      cameraTargetRef.current.copy(currentEarthWorldPos);
       cameraSphericalRef.current.radius = 35;
     } else if (cameraPreset === 'moon' && moonGroupRef.current) {
-      cameraTargetRef.current.set(moonX, moonY, moonZ);
+      cameraTargetRef.current.copy(currentMoonWorldPos);
       cameraSphericalRef.current.radius = 16;
     } else if (cameraPreset === 'sun') {
       cameraTargetRef.current.set(0, 0, 0);
@@ -713,7 +847,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       cameraTargetRef.current.copy(rocketGroupRef.current.position);
       cameraSphericalRef.current.radius = 12;
     } else if (cameraPreset === 'earthrise' && moonGroupRef.current) {
-      cameraTargetRef.current.set(moonX, moonY, moonZ);
+      cameraTargetRef.current.copy(currentMoonWorldPos);
       cameraSphericalRef.current.radius = 8;
     }
   }, [
@@ -721,7 +855,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     ephemeris,
     referenceFrame,
     showLagrangePoints,
-    showOrbitLines,
+    showEarthOrbit,
+    showMoonOrbit,
+    showComposedMoonSunOrbit,
+    showDynamicTrails,
     showLunarSOI,
     showAtmosphereGlow,
     selectedSpaceport,

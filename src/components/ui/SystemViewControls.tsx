@@ -9,8 +9,14 @@ interface SystemViewControlsProps {
   onChangeScale: (scale: ScaleMode) => void;
   showLagrangePoints: boolean;
   onToggleLagrange: () => void;
-  showOrbitLines: boolean;
-  onToggleOrbitLines: () => void;
+  showEarthOrbit: boolean;
+  onToggleEarthOrbit: () => void;
+  showMoonOrbit: boolean;
+  onToggleMoonOrbit: () => void;
+  showComposedMoonSunOrbit: boolean;
+  onToggleComposedMoonSunOrbit: () => void;
+  showDynamicTrails: boolean;
+  onToggleDynamicTrails: () => void;
   showLunarSOI: boolean;
   onToggleLunarSOI: () => void;
   showAtmosphereGlow: boolean;
@@ -25,8 +31,14 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   onChangeScale,
   showLagrangePoints,
   onToggleLagrange,
-  showOrbitLines,
-  onToggleOrbitLines,
+  showEarthOrbit,
+  onToggleEarthOrbit,
+  showMoonOrbit,
+  onToggleMoonOrbit,
+  showComposedMoonSunOrbit,
+  onToggleComposedMoonSunOrbit,
+  showDynamicTrails,
+  onToggleDynamicTrails,
   showLunarSOI,
   onToggleLunarSOI,
   showAtmosphereGlow,
@@ -34,7 +46,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   ephemeris,
 }) => {
   return (
-    <div className="absolute top-16 left-4 z-20 w-72 bg-gray-950/85 backdrop-blur-md border border-gray-800/80 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-4">
+    <div className="absolute top-16 left-4 z-20 w-80 bg-gray-950/85 backdrop-blur-md border border-gray-800/80 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-4 max-h-[calc(100vh-130px)] overflow-y-auto font-sans">
       <div className="flex items-center justify-between pb-2 border-b border-gray-800">
         <div className="flex items-center space-x-2">
           <Layers className="w-4 h-4 text-blue-400" />
@@ -113,7 +125,63 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
       </div>
 
       <div className="space-y-2 pt-2 border-t border-gray-800/80 text-xs">
-        <label className="text-[11px] font-mono uppercase text-gray-400">Visual Overlays</label>
+        <label className="text-[11px] font-mono uppercase text-gray-400">Orbit Trails & Curves</label>
+
+        <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
+          <span className="flex items-center space-x-2 text-cyan-300">
+            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block shadow-sm shadow-cyan-400/50" />
+            <span>Earth Orbit around Sun</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={showEarthOrbit}
+            onChange={onToggleEarthOrbit}
+            className="w-4 h-4 rounded text-cyan-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
+          />
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
+          <span className="flex items-center space-x-2 text-pink-300">
+            <span className="w-2.5 h-2.5 rounded-full bg-pink-500 inline-block shadow-sm shadow-pink-500/50" />
+            <span>Composed Lunar Orbit vs Sun (13-Wave Cycloid)</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={showComposedMoonSunOrbit}
+            onChange={onToggleComposedMoonSunOrbit}
+            className="w-4 h-4 rounded text-pink-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
+          />
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
+          <span className="flex items-center space-x-2 text-purple-300">
+            <span className="w-2.5 h-2.5 rounded-full bg-purple-400 inline-block shadow-sm shadow-purple-400/50" />
+            <span>Moon Orbit around Earth</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={showMoonOrbit}
+            onChange={onToggleMoonOrbit}
+            className="w-4 h-4 rounded text-purple-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
+          />
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
+          <span className="flex items-center space-x-2 text-emerald-300">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block shadow-sm shadow-emerald-400/50" />
+            <span>Live Motion Breadcrumbs (Real-time Trails)</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={showDynamicTrails}
+            onChange={onToggleDynamicTrails}
+            className="w-4 h-4 rounded text-emerald-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
+          />
+        </label>
+      </div>
+
+      <div className="space-y-2 pt-2 border-t border-gray-800/80 text-xs">
+        <label className="text-[11px] font-mono uppercase text-gray-400">Astrodynamic Features</label>
 
         <label className="flex items-center justify-between cursor-pointer group">
           <span className="text-gray-300 group-hover:text-white">Earth-Moon Lagrange (L1-L5)</span>
@@ -126,17 +194,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
         </label>
 
         <label className="flex items-center justify-between cursor-pointer group">
-          <span className="text-gray-300 group-hover:text-white">Keplerian Orbit Trails</span>
-          <input
-            type="checkbox"
-            checked={showOrbitLines}
-            onChange={onToggleOrbitLines}
-            className="w-4 h-4 rounded text-blue-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
-          />
-        </label>
-
-        <label className="flex items-center justify-between cursor-pointer group">
-          <span className="text-gray-300 group-hover:text-white">Lunar Sphere of Influence</span>
+          <span className="text-gray-300 group-hover:text-white">Lunar Sphere of Influence (SOI)</span>
           <input
             type="checkbox"
             checked={showLunarSOI}

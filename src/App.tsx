@@ -22,28 +22,28 @@ import { simulateRocketAscentStep, calculateTotalRocketDeltaV } from './physics/
 import { solveEarthMoonTrajectory } from './physics/trajectorySolver';
 
 export function App() {
-  // App Mode & Camera
   const [appMode, setAppMode] = useState<ActiveAppMode>('system');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('free');
 
-  // Simulation Time & Warp
   const [simTimeSeconds, setSimTimeSeconds] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [timeWarp, setTimeWarp] = useState<number>(100);
 
-  // Celestial System View Settings
-  const [referenceFrame, setReferenceFrame] = useState<ReferenceFrame>('geocentric');
+  const [referenceFrame, setReferenceFrame] = useState<ReferenceFrame>('heliocentric');
   const [scaleMode, setScaleMode] = useState<ScaleMode>('visual');
+
+  // Orbit Line & Trail Toggles
   const [showLagrangePoints, setShowLagrangePoints] = useState<boolean>(true);
-  const [showOrbitLines, setShowOrbitLines] = useState<boolean>(true);
+  const [showEarthOrbit, setShowEarthOrbit] = useState<boolean>(true);
+  const [showMoonOrbit, setShowMoonOrbit] = useState<boolean>(true);
+  const [showComposedMoonSunOrbit, setShowComposedMoonSunOrbit] = useState<boolean>(true);
+  const [showDynamicTrails, setShowDynamicTrails] = useState<boolean>(true);
   const [showLunarSOI, setShowLunarSOI] = useState<boolean>(true);
   const [showAtmosphereGlow, setShowAtmosphereGlow] = useState<boolean>(true);
 
-  // Spaceport & Rocket State
-  const [selectedSpaceport, setSelectedSpaceport] = useState<Spaceport>(SPACEPORTS[0]); // Guiana Space Centre (Kourou)
-  const [activeRocket, setActiveRocket] = useState<RocketPreset>(ROCKET_PRESETS[0]); // Saturn V
+  const [selectedSpaceport, setSelectedSpaceport] = useState<Spaceport>(SPACEPORTS[0]);
+  const [activeRocket, setActiveRocket] = useState<RocketPreset>(ROCKET_PRESETS[0]);
 
-  // Rocket Launch Ascent Telemetry State
   const [rocketTelemetry, setRocketTelemetry] = useState<RocketTelemetry>(() => {
     const r = ROCKET_PRESETS[0];
     const sp = SPACEPORTS[0];
@@ -86,20 +86,16 @@ export function App() {
   const [userThrottle, setUserThrottle] = useState<number>(1.0);
   const [manualPitch, setManualPitch] = useState<number>(85);
 
-  // Earth-Moon Trajectory State
   const [activeTrajectory, setActiveTrajectory] = useState<EarthMoonTrajectory>(() =>
     solveEarthMoonTrajectory('direct_loi', SPACEPORTS[0], 200000, 72)
   );
   const [trajectoryProgress, setTrajectoryProgress] = useState<number>(0.15);
 
-  // Modals
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
   const [isChartsOpen, setIsChartsOpen] = useState<boolean>(false);
 
-  // Compute Ephemeris state for current epoch
   const ephemeris = getEphemerisState(simTimeSeconds);
 
-  // Simulation Loop Tick
   useEffect(() => {
     let animFrame: number;
     let lastTimestamp = performance.now();
@@ -109,13 +105,11 @@ export function App() {
       lastTimestamp = timestamp;
 
       if (isPlaying) {
-        // Advance Celestial System time
         if (appMode === 'system' || appMode === 'transfer') {
-          const dtSim = realDt * timeWarp * 3600; // Warp scaled
+          const dtSim = realDt * timeWarp * 3600;
           setSimTimeSeconds((prev) => prev + dtSim);
         }
 
-        // Advance Rocket Ascent Simulation if launched
         if (appMode === 'launch' && rocketTelemetry.phase !== 'pad') {
           const launchDt = realDt * Math.min(5, Math.max(1, timeWarp === 1 ? 1 : 2));
           setRocketTelemetry((prev) =>
@@ -140,7 +134,6 @@ export function App() {
     return () => cancelAnimationFrame(animFrame);
   }, [isPlaying, timeWarp, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, rocketTelemetry.phase]);
 
-  // Handle Mode Change
   const handleSelectMode = (mode: ActiveAppMode) => {
     setAppMode(mode);
     if (mode === 'system') {
@@ -152,7 +145,6 @@ export function App() {
     }
   };
 
-  // Launch Ignition Trigger
   const handleLaunch = () => {
     setRocketTelemetry((prev) => ({
       ...prev,
@@ -162,7 +154,6 @@ export function App() {
     setCameraPreset('rocket');
   };
 
-  // Abort / Reset Launchpad
   const handleAbort = () => {
     let totalWetMass = activeRocket.fairingMass;
     for (const stage of activeRocket.stages) {
@@ -200,7 +191,6 @@ export function App() {
     setCameraPreset('spaceport');
   };
 
-  // Reset Simulation
   const handleResetSimulation = () => {
     setSimTimeSeconds(0);
     setTrajectoryProgress(0.15);
@@ -209,14 +199,16 @@ export function App() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-gray-950 text-gray-100 font-sans select-none">
-      {/* 3D WebGL Canvas Viewport */}
       <ThreeViewport
         appMode={appMode}
         ephemeris={ephemeris}
         referenceFrame={referenceFrame}
         scaleMode={scaleMode}
         showLagrangePoints={showLagrangePoints}
-        showOrbitLines={showOrbitLines}
+        showEarthOrbit={showEarthOrbit}
+        showMoonOrbit={showMoonOrbit}
+        showComposedMoonSunOrbit={showComposedMoonSunOrbit}
+        showDynamicTrails={showDynamicTrails}
         showLunarSOI={showLunarSOI}
         showAtmosphereGlow={showAtmosphereGlow}
         selectedSpaceport={selectedSpaceport}
@@ -227,7 +219,6 @@ export function App() {
         trajectoryProgress={trajectoryProgress}
       />
 
-      {/* Top Header Navigation */}
       <Header
         appMode={appMode}
         onSelectMode={handleSelectMode}
@@ -238,7 +229,6 @@ export function App() {
         onResetSimulation={handleResetSimulation}
       />
 
-      {/* Left-Side Mode Specific Controls */}
       {appMode === 'system' && (
         <SystemViewControls
           referenceFrame={referenceFrame}
@@ -247,8 +237,14 @@ export function App() {
           onChangeScale={setScaleMode}
           showLagrangePoints={showLagrangePoints}
           onToggleLagrange={() => setShowLagrangePoints(!showLagrangePoints)}
-          showOrbitLines={showOrbitLines}
-          onToggleOrbitLines={() => setShowOrbitLines(!showOrbitLines)}
+          showEarthOrbit={showEarthOrbit}
+          onToggleEarthOrbit={() => setShowEarthOrbit(!showEarthOrbit)}
+          showMoonOrbit={showMoonOrbit}
+          onToggleMoonOrbit={() => setShowMoonOrbit(!showMoonOrbit)}
+          showComposedMoonSunOrbit={showComposedMoonSunOrbit}
+          onToggleComposedMoonSunOrbit={() => setShowComposedMoonSunOrbit(!showComposedMoonSunOrbit)}
+          showDynamicTrails={showDynamicTrails}
+          onToggleDynamicTrails={() => setShowDynamicTrails(!showDynamicTrails)}
           showLunarSOI={showLunarSOI}
           onToggleLunarSOI={() => setShowLunarSOI(!showLunarSOI)}
           showAtmosphereGlow={showAtmosphereGlow}
@@ -286,10 +282,8 @@ export function App() {
         />
       )}
 
-      {/* Right-Side Telemetry HUD (Active in Launch mode or upon request) */}
       {appMode === 'launch' && <TelemetryHUD telemetry={rocketTelemetry} />}
 
-      {/* Bottom Mission Elapsed Time Controls */}
       {appMode !== 'launch' && (
         <TimeControls
           isPlaying={isPlaying}
@@ -301,7 +295,6 @@ export function App() {
         />
       )}
 
-      {/* Modals */}
       <InfoModal isOpen={isInfoOpen} onClose={() => setIsInfoOpen(false)} />
       <FlightChartModal isOpen={isChartsOpen} onClose={() => setIsChartsOpen(false)} />
     </div>
