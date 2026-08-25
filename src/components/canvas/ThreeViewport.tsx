@@ -415,6 +415,67 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(composedMoonSunLine);
     composedMoonSunLineRef.current = composedMoonSunLine;
 
+    // 2b. Geocentric Celestial Suite Objects
+    // Apparent Ecliptic Solar Orbit (Sun path around Earth)
+    const eclipticSolarGeo = new THREE.BufferGeometry();
+    const eclipticSolarMat = new THREE.LineBasicMaterial({
+      color: 0xf59e0b, // Amber / Gold
+      transparent: true,
+      opacity: 0.85,
+      linewidth: 2,
+    });
+    const geocentricSolarOrbitLine = new THREE.Line(eclipticSolarGeo, eclipticSolarMat);
+    scene.add(geocentricSolarOrbitLine);
+    geocentricSolarOrbitLineRef.current = geocentricSolarOrbitLine;
+
+    // Earth Umbra Shadow Cone (pointing opposite the Sun)
+    const shadowConeGeo = new THREE.ConeGeometry(1, 1, 32, 1, true);
+    shadowConeGeo.translate(0, -0.5, 0); // apex at origin (0,0,0)
+    const shadowConeMat = new THREE.MeshBasicMaterial({
+      color: 0x060919,
+      transparent: true,
+      opacity: 0.45,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const earthUmbraShadowCone = new THREE.Mesh(shadowConeGeo, shadowConeMat);
+    scene.add(earthUmbraShadowCone);
+    earthUmbraShadowConeRef.current = earthUmbraShadowCone;
+
+    // GEO & LEO Belts in Earth's equatorial plane
+    const geoBeltGeo = new THREE.BufferGeometry();
+    const geoBeltMat = new THREE.LineBasicMaterial({
+      color: 0x00f0ff,
+      transparent: true,
+      opacity: 0.7,
+      linewidth: 1.5,
+    });
+    const geoBeltLine = new THREE.Line(geoBeltGeo, geoBeltMat);
+    earthMesh.add(geoBeltLine);
+    geoBeltLineRef.current = geoBeltLine;
+
+    const leoBeltGeo = new THREE.BufferGeometry();
+    const leoBeltMat = new THREE.LineBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.6,
+    });
+    const leoBeltLine = new THREE.Line(leoBeltGeo, leoBeltMat);
+    earthMesh.add(leoBeltLine);
+    leoBeltLineRef.current = leoBeltLine;
+
+    // Ecliptic-Lunar Line of Nodes
+    const lineOfNodesGeo = new THREE.BufferGeometry();
+    const lineOfNodesMat = new THREE.LineBasicMaterial({
+      color: 0x10b981,
+      transparent: true,
+      opacity: 0.85,
+      linewidth: 2,
+    });
+    const lineOfNodesLine = new THREE.Line(lineOfNodesGeo, lineOfNodesMat);
+    scene.add(lineOfNodesLine);
+    lineOfNodesLineRef.current = lineOfNodesLine;
+
     // 3. Moon Orbit Line around Earth (Geocentric)
     const moonOrbitPts: THREE.Vector3[] = [];
     for (let i = 0; i <= 128; i++) {
@@ -872,25 +933,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       // 2. Earth Umbra Shadow Cone (pointing directly opposite the Sun)
       if (earthUmbraShadowConeRef.current) {
         const shadowDir = new THREE.Vector3(-sunX, -sunY, -sunZ).normalize();
-        const shadowLen = emDistScale * 1.6;
-        earthUmbraShadowConeRef.current.position.copy(
-          new THREE.Vector3().addScaledVector(shadowDir, shadowLen * 0.5)
-        );
+        const shadowLen = emDistScale * 1.5;
+        earthUmbraShadowConeRef.current.position.set(0, 0, 0);
         earthUmbraShadowConeRef.current.scale.set(
-          scales.earthRadius * 0.45,
-          shadowLen * 0.5,
-          scales.earthRadius * 0.45
+          scales.earthRadius * 1.6,
+          shadowLen,
+          scales.earthRadius * 1.6
         );
         earthUmbraShadowConeRef.current.quaternion.setFromUnitVectors(
-          new THREE.Vector3(0, 1, 0),
+          new THREE.Vector3(0, -1, 0),
           shadowDir
         );
         earthUmbraShadowConeRef.current.visible = showEarthUmbraShadow && appMode === 'system';
       }
 
-      // 3. GEO & LEO Belts
+      // 3. GEO & LEO Belts in Earth's equatorial plane
       if (geoBeltLineRef.current) {
-        const geoRadius = scales.earthRadius * (42164 / 6371);
+        const geoRadius = SCALING.visual.earthRadius * (42164 / 6371);
         const geoPts: THREE.Vector3[] = [];
         for (let i = 0; i <= 96; i++) {
           const theta = (i / 96) * Math.PI * 2;
@@ -901,7 +960,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
 
       if (leoBeltLineRef.current) {
-        const leoRadius = scales.earthRadius * 1.06;
+        const leoRadius = SCALING.visual.earthRadius * 1.08;
         const leoPts: THREE.Vector3[] = [];
         for (let i = 0; i <= 64; i++) {
           const theta = (i / 64) * Math.PI * 2;
@@ -913,7 +972,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
       // 4. Ecliptic-Lunar Line of Nodes
       if (lineOfNodesLineRef.current) {
-        const nodeDist = emDistScale * 1.25;
+        const nodeDist = emDistScale * 1.35;
         const nodePts = [
           new THREE.Vector3(-nodeDist, 0, 0),
           new THREE.Vector3(nodeDist, 0, 0),
