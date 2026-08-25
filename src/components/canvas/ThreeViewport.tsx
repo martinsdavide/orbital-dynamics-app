@@ -648,31 +648,66 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const emDistScale = scales.earthMoonDistance;
     const sunDist = scales.sunEarthDistance;
 
-    // Dynamically scale 3D celestial body meshes to match scaleMode
+    // Dynamically scale celestial body meshes
     if (earthMeshRef.current) {
-      const earthScaleFactor = scales.earthRadius / SCALING.visual.earthRadius;
-      earthMeshRef.current.scale.setScalar(earthScaleFactor);
+      earthMeshRef.current.scale.setScalar(scales.earthRadius / SCALING.visual.earthRadius);
     }
     if (moonMeshRef.current) {
-      const moonScaleFactor = scales.moonRadius / SCALING.visual.moonRadius;
-      moonMeshRef.current.scale.setScalar(moonScaleFactor);
+      moonMeshRef.current.scale.setScalar(scales.moonRadius / SCALING.visual.moonRadius);
     }
     if (sunMeshRef.current) {
-      const sunScaleFactor = scales.sunRadius / SCALING.visual.sunRadius;
-      sunMeshRef.current.scale.setScalar(sunScaleFactor);
+      sunMeshRef.current.scale.setScalar(scales.sunRadius / SCALING.visual.sunRadius);
     }
     if (lunarSOIMeshRef.current) {
-      const soiScaleFactor = (scales.earthMoonDistance * 0.172) / (SCALING.visual.moonRadius * 4.5);
-      lunarSOIMeshRef.current.scale.setScalar(soiScaleFactor);
+      // Laplace SOI: 66,100 km / 384,400 km = 0.172x Earth-Moon distance
+      const soiRadius = emDistScale * 0.172;
+      const baseSoiRadius = SCALING.visual.moonRadius * 4.5;
+      lunarSOIMeshRef.current.scale.setScalar(soiRadius / baseSoiRadius);
     }
+
+    // Rebuild exact Keplerian Moon Orbit Line around Earth
     if (moonOrbitLineRef.current) {
-      moonOrbitLineRef.current.scale.setScalar(scales.earthMoonDistance / SCALING.visual.earthMoonDistance);
+      const moonOrbitPts: THREE.Vector3[] = [];
+      for (let i = 0; i <= 128; i++) {
+        const theta = (i / 128) * Math.PI * 2;
+        const x = Math.cos(theta) * emDistScale;
+        const z = Math.sin(theta) * emDistScale;
+        const y = Math.sin(theta) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
+        moonOrbitPts.push(new THREE.Vector3(x, y, z));
+      }
+      moonOrbitLineRef.current.geometry.setFromPoints(moonOrbitPts);
+      moonOrbitLineRef.current.scale.setScalar(1);
     }
+
+    // Rebuild Earth Heliocentric Orbit Line around Sun
     if (earthOrbitLineRef.current) {
-      earthOrbitLineRef.current.scale.setScalar(scales.sunEarthDistance / SCALING.visual.sunEarthDistance);
+      const earthOrbitPts: THREE.Vector3[] = [];
+      for (let i = 0; i <= 256; i++) {
+        const theta = (i / 256) * Math.PI * 2;
+        earthOrbitPts.push(new THREE.Vector3(Math.cos(theta) * sunDist, 0, Math.sin(theta) * sunDist));
+      }
+      earthOrbitLineRef.current.geometry.setFromPoints(earthOrbitPts);
+      earthOrbitLineRef.current.scale.setScalar(1);
     }
+
+    // Rebuild Composed Lunar Cycloid Orbit around Sun (Smooth & Convex)
     if (composedMoonSunLineRef.current) {
-      composedMoonSunLineRef.current.scale.setScalar(scales.sunEarthDistance / SCALING.visual.sunEarthDistance);
+      const composedMoonPts: THREE.Vector3[] = [];
+      const totalYearSteps = 1200;
+      const moonToEarthRatio = EARTH.orbitalPeriod / MOON.orbitalPeriod; // ~13.368
+      const waveAmp = Math.min(scales.waveAmplitude, emDistScale * 0.85);
+
+      for (let i = 0; i <= totalYearSteps; i++) {
+        const thetaE = (i / totalYearSteps) * Math.PI * 2;
+        const thetaM = thetaE * moonToEarthRatio;
+        const rCur = sunDist + waveAmp * Math.cos(thetaM);
+        const x = Math.cos(thetaE) * rCur;
+        const z = Math.sin(thetaE) * rCur;
+        const y = Math.sin(thetaM) * (emDistScale * 0.1);
+        composedMoonPts.push(new THREE.Vector3(x, y, z));
+      }
+      composedMoonSunLineRef.current.geometry.setFromPoints(composedMoonPts);
+      composedMoonSunLineRef.current.scale.setScalar(1);
     }
     const moonAngle = (ephemeris.timeSeconds / MOON.orbitalPeriod) * (2 * Math.PI);
     const moonX = Math.cos(moonAngle) * emDistScale;
@@ -736,8 +771,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         moonGroupRef.current.visible = true;
       }
       if (sunMeshRef.current && sunLightRef.current) {
-        sunMeshRef.current.position.set(-280, 0, 0);
-        sunLightRef.current.position.set(-280, 0, 0);
+        sunMeshRef.current.position.set(-sunDist, 0, 0);
+        sunLightRef.current.position.set(-sunDist, 0, 0);
         sunMeshRef.current.visible = appMode === 'system';
       }
 
@@ -796,8 +831,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         const marker = lagrangeGroupRef.current?.getObjectByName('lagrange_' + lp.name);
         if (marker) {
           const dir = lp.position;
-          const mag = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-          const scaledMag = (mag / MOON.semiMajorAxis) * SCALING.visual.earthMoonDistance;
+          const mag = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) || 1;
+          const scaledMag = (mag / MOON.semiMajorAxis) * emDistScale;
           marker.position.set(
             currentEarthWorldPos.x + (dir.x / mag) * scaledMag,
             currentEarthWorldPos.y + (dir.y / mag) * scaledMag,
