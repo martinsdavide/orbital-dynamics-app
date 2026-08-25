@@ -4,7 +4,7 @@ import type { EphemerisState, ReferenceFrame, ScaleMode } from '../../types/cele
 import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 import type { EarthMoonTrajectory } from '../../types/trajectory';
-import { SCALING, EARTH, MOON } from '../../physics/constants';
+import { SCALING, EARTH, MOON, SUN } from '../../physics/constants';
 import {
   createEarthTexture,
   createMoonTexture,
@@ -13,6 +13,46 @@ import {
 } from './TextureGenerator';
 
 export type ActiveAppMode = 'system' | 'launch' | 'transfer';
+
+export function getScalingConfig(scaleMode: ScaleMode) {
+  if (scaleMode === 'true') {
+    // True 1:1 Astronomical Scale Proportions
+    // Earth-Moon distance is exactly 60.33 Earth radii
+    // Moon radius is exactly 27.27% of Earth radius
+    // Sun radius is exactly 109.3x Earth radius
+    const earthR = 3.0;
+    const moonR = earthR * (MOON.radius / EARTH.radius); // ~0.818
+    const sunR = earthR * Math.min(45, (SUN.radius / EARTH.radius) * 0.4); // ~38
+    const emDist = earthR * (MOON.semiMajorAxis / EARTH.radius); // ~181 units (60.3x Earth radius)
+    const seDist = 1200; // 1 AU heliocentric orbit
+
+    return {
+      earthRadius: earthR,
+      moonRadius: moonR,
+      sunRadius: sunR,
+      earthMoonDistance: emDist,
+      sunEarthDistance: seDist,
+      waveAmplitude: 14.2,
+      earthCameraRadius: 20,
+      moonCameraRadius: 6,
+      sunCameraRadius: 1400,
+    };
+  } else {
+    // Enhanced Visual Mode (Optimized for side-by-side multi-body viewing)
+    return {
+      earthRadius: SCALING.visual.earthRadius, // 10
+      moonRadius: SCALING.visual.moonRadius, // 2.7
+      sunRadius: SCALING.visual.sunRadius, // 35
+      earthMoonDistance: SCALING.visual.earthMoonDistance, // 70
+      sunEarthDistance: SCALING.visual.sunEarthDistance, // 320
+      waveAmplitude: 12.5,
+      earthCameraRadius: 35,
+      moonCameraRadius: 16,
+      sunCameraRadius: 380,
+    };
+  }
+}
+
 export type CameraPreset = 'free' | 'earth' | 'moon' | 'sun' | 'rocket' | 'spaceport' | 'earthrise';
 
 interface ThreeViewportProps {
@@ -39,6 +79,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   appMode,
   ephemeris,
   referenceFrame,
+  scaleMode,
   showLagrangePoints,
   showEarthOrbit,
   showMoonOrbit,
@@ -603,7 +644,36 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   useEffect(() => {
     if (!sceneRef.current) return;
 
-    const emDistScale = SCALING.visual.earthMoonDistance;
+    const scales = getScalingConfig(scaleMode);
+    const emDistScale = scales.earthMoonDistance;
+    const sunDist = scales.sunEarthDistance;
+
+    // Dynamically scale 3D celestial body meshes to match scaleMode
+    if (earthMeshRef.current) {
+      const earthScaleFactor = scales.earthRadius / SCALING.visual.earthRadius;
+      earthMeshRef.current.scale.setScalar(earthScaleFactor);
+    }
+    if (moonMeshRef.current) {
+      const moonScaleFactor = scales.moonRadius / SCALING.visual.moonRadius;
+      moonMeshRef.current.scale.setScalar(moonScaleFactor);
+    }
+    if (sunMeshRef.current) {
+      const sunScaleFactor = scales.sunRadius / SCALING.visual.sunRadius;
+      sunMeshRef.current.scale.setScalar(sunScaleFactor);
+    }
+    if (lunarSOIMeshRef.current) {
+      const soiScaleFactor = (scales.earthMoonDistance * 0.172) / (SCALING.visual.moonRadius * 4.5);
+      lunarSOIMeshRef.current.scale.setScalar(soiScaleFactor);
+    }
+    if (moonOrbitLineRef.current) {
+      moonOrbitLineRef.current.scale.setScalar(scales.earthMoonDistance / SCALING.visual.earthMoonDistance);
+    }
+    if (earthOrbitLineRef.current) {
+      earthOrbitLineRef.current.scale.setScalar(scales.sunEarthDistance / SCALING.visual.sunEarthDistance);
+    }
+    if (composedMoonSunLineRef.current) {
+      composedMoonSunLineRef.current.scale.setScalar(scales.sunEarthDistance / SCALING.visual.sunEarthDistance);
+    }
     const moonAngle = (ephemeris.timeSeconds / MOON.orbitalPeriod) * (2 * Math.PI);
     const moonX = Math.cos(moonAngle) * emDistScale;
     const moonZ = Math.sin(moonAngle) * emDistScale;
@@ -622,7 +692,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     if (referenceFrame === 'heliocentric') {
       const earthAngle = (ephemeris.timeSeconds / EARTH.orbitalPeriod) * (2 * Math.PI);
-      const sunDist = SCALING.visual.sunEarthDistance;
+      
       currentEarthWorldPos.set(Math.cos(earthAngle) * sunDist, 0, Math.sin(earthAngle) * sunDist);
       currentMoonWorldPos.set(
         currentEarthWorldPos.x + moonX,
@@ -826,8 +896,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         padWorldPos.copy(currentEarthWorldPos);
       }
 
-      const rEarthVisual = SCALING.visual.earthRadius;
-      const rMoonVisual = SCALING.visual.earthMoonDistance;
+      const rEarthVisual = scales.earthRadius;
+      const rMoonVisual = scales.earthMoonDistance;
 
       const rawSplinePts: THREE.Vector3[] = activeTrajectory.points.map((pt, idx) => {
         if (idx === 0) {
@@ -876,27 +946,28 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     if (cameraPreset === 'earth') {
       cameraTargetRef.current.copy(currentEarthWorldPos);
-      cameraSphericalRef.current.radius = 35;
+      cameraSphericalRef.current.radius = scales.earthCameraRadius;
     } else if (cameraPreset === 'moon' && moonGroupRef.current) {
       cameraTargetRef.current.copy(currentMoonWorldPos);
-      cameraSphericalRef.current.radius = 16;
+      cameraSphericalRef.current.radius = scales.moonCameraRadius;
     } else if (cameraPreset === 'sun') {
       cameraTargetRef.current.set(0, 0, 0);
-      cameraSphericalRef.current.radius = 380;
+      cameraSphericalRef.current.radius = scales.sunCameraRadius;
     } else if (cameraPreset === 'spaceport' && launchpadMarkerRef.current) {
       launchpadMarkerRef.current.getWorldPosition(cameraTargetRef.current);
-      cameraSphericalRef.current.radius = 18;
+      cameraSphericalRef.current.radius = scales.earthCameraRadius * 0.55;
     } else if (cameraPreset === 'rocket' && rocketGroupRef.current && appMode === 'launch') {
       cameraTargetRef.current.copy(rocketGroupRef.current.position);
       cameraSphericalRef.current.radius = 12;
     } else if (cameraPreset === 'earthrise' && moonGroupRef.current) {
       cameraTargetRef.current.copy(currentMoonWorldPos);
-      cameraSphericalRef.current.radius = 8;
+      cameraSphericalRef.current.radius = scales.moonCameraRadius * 0.7;
     }
   }, [
     appMode,
     ephemeris,
     referenceFrame,
+    scaleMode,
     showLagrangePoints,
     showEarthOrbit,
     showMoonOrbit,

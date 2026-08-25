@@ -122,6 +122,17 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
             True 1:1 Scale
           </button>
         </div>
+        <div className="p-2 rounded-xl bg-gray-900/60 border border-gray-800 text-[10px] font-mono text-gray-400">
+          {scaleMode === 'true' ? (
+            <span className="text-emerald-300">
+              📏 <strong>True 1:1 Scale:</strong> Distance is exactly 60.33 Earth radii (384,400 km). Moon diameter is 27.3% of Earth.
+            </span>
+          ) : (
+            <span className="text-blue-300">
+              👁️ <strong>Enhanced Visual:</strong> Body sizes and cislunar distances scaled for simultaneous multi-body viewing.
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2 pt-2 border-t border-gray-800/80 text-xs">
