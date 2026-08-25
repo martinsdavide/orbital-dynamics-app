@@ -735,30 +735,50 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
 
     if (appMode === 'launch') {
-      if (rocketGroupRef.current) {
+      if (rocketGroupRef.current && launchpadMarkerRef.current) {
         rocketGroupRef.current.visible = true;
 
-        const latRad = (selectedSpaceport.latitude * Math.PI) / 180;
-        const lonRad = (selectedSpaceport.longitude * Math.PI) / 180;
-        const rPad = SCALING.visual.earthRadius;
+        // Obtain exact world position of the launchpad on Earth's surface
+        const padWorldPos = new THREE.Vector3();
+        launchpadMarkerRef.current.getWorldPosition(padWorldPos);
 
-        const padX = rPad * Math.cos(latRad) * Math.cos(lonRad);
-        const padY = rPad * Math.sin(latRad);
-        const padZ = -rPad * Math.cos(latRad) * Math.sin(lonRad);
+        const earthWorldCenter = new THREE.Vector3();
+        if (earthMeshRef.current) {
+          earthMeshRef.current.getWorldPosition(earthWorldCenter);
+        } else {
+          earthWorldCenter.copy(currentEarthWorldPos);
+        }
+
+        // Radial outward normal vector from Earth center through the launchpad into the sky
+        const upNormal = new THREE.Vector3().subVectors(padWorldPos, earthWorldCenter).normalize();
+
+        // Eastward horizontal flight vector for downrange ascent
+        const earthAxis = new THREE.Vector3(0, 1, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), EARTH.axialTilt);
+        const eastTangent = new THREE.Vector3().crossVectors(earthAxis, upNormal).normalize();
+        if (eastTangent.lengthSq() < 0.01) {
+          eastTangent.set(1, 0, 0);
+        }
 
         const altScale = (rocketTelemetry.altitude / 300000) * 12;
         const downrangeScale = (rocketTelemetry.downrangeDistance / 800000) * 16;
 
-        const currentRocketPos = new THREE.Vector3(
-          padX + Math.cos(latRad) * (altScale + 0.1) + downrangeScale * 0.7,
-          padY + Math.sin(latRad) * (altScale + 0.1),
-          padZ + downrangeScale * 0.3
-        );
+        const currentRocketPos = new THREE.Vector3()
+          .copy(padWorldPos)
+          .addScaledVector(upNormal, altScale + 0.2)
+          .addScaledVector(eastTangent, downrangeScale);
 
         rocketGroupRef.current.position.copy(currentRocketPos);
 
-        const pitchRad = ((90 - rocketTelemetry.pitchAngle) * Math.PI) / 180;
-        rocketGroupRef.current.rotation.set(0, 0, -pitchRad);
+        // Attitude orientation
+        const pitchRad = (rocketTelemetry.pitchAngle * Math.PI) / 180;
+        const flightDir = new THREE.Vector3()
+          .addScaledVector(upNormal, Math.sin(pitchRad))
+          .addScaledVector(eastTangent, Math.cos(pitchRad))
+          .normalize();
+
+        const lookTarget = new THREE.Vector3().copy(currentRocketPos).add(flightDir);
+        rocketGroupRef.current.lookAt(lookTarget);
+        rocketGroupRef.current.rotateX(Math.PI / 2);
 
         if (rocketTelemetry.phase !== 'pad') {
           ascentPositionsRef.current.push(currentRocketPos.clone());
@@ -841,7 +861,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       cameraTargetRef.current.set(0, 0, 0);
       cameraSphericalRef.current.radius = 380;
     } else if (cameraPreset === 'spaceport' && launchpadMarkerRef.current) {
-      cameraTargetRef.current.copy(launchpadMarkerRef.current.position);
+      launchpadMarkerRef.current.getWorldPosition(cameraTargetRef.current);
       cameraSphericalRef.current.radius = 18;
     } else if (cameraPreset === 'rocket' && rocketGroupRef.current && appMode === 'launch') {
       cameraTargetRef.current.copy(rocketGroupRef.current.position);
