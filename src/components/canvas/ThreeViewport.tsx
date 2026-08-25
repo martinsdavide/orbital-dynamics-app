@@ -635,7 +635,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
       if (moonGroupRef.current) {
         moonGroupRef.current.position.copy(currentMoonWorldPos);
-        moonGroupRef.current.visible = appMode !== 'launch';
+        moonGroupRef.current.visible = true;
       }
 
       // Center heliocentric orbit lines at Sun (0, 0, 0)
@@ -657,7 +657,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
       if (moonGroupRef.current) {
         moonGroupRef.current.position.set(moonX, moonY, moonZ);
-        moonGroupRef.current.visible = appMode !== 'launch';
+        moonGroupRef.current.visible = true;
       }
       if (sunMeshRef.current && sunLightRef.current) {
         sunMeshRef.current.position.set(-280, 0, 0);
@@ -699,7 +699,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     // Moon Orbit around Earth (purple)
     if (moonOrbitLineRef.current) {
-      moonOrbitLineRef.current.visible = showMoonOrbit && appMode !== 'launch';
+      moonOrbitLineRef.current.visible = showMoonOrbit;
     }
 
     // Body Rotations
@@ -714,7 +714,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       earthAtmoRef.current.visible = showAtmosphereGlow;
     }
     if (lunarSOIMeshRef.current) {
-      lunarSOIMeshRef.current.visible = showLunarSOI && appMode !== 'launch';
+      lunarSOIMeshRef.current.visible = showLunarSOI;
     }
 
     if (lagrangeGroupRef.current) {
