@@ -82,28 +82,41 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   useEffect(() => {
     if (!mountRef.current) return;
 
+    // Clean any prior children (prevents duplicate canvases on React StrictMode remount)
+    while (mountRef.current.firstChild) {
+      mountRef.current.removeChild(mountRef.current.firstChild);
+    }
+
     const scene = new THREE.Scene();
     sceneRef.current = scene;
     scene.background = new THREE.Color(0x02040a);
 
-    const width = mountRef.current.clientWidth;
-    const height = mountRef.current.clientHeight;
+    const width = mountRef.current.clientWidth || window.innerWidth || 1200;
+    const height = mountRef.current.clientHeight || window.innerHeight || 800;
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 50000);
     cameraRef.current = camera;
     camera.position.set(0, 100, 150);
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      powerPreference: 'high-performance',
-      logarithmicDepthBuffer: true,
-    });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: 'high-performance',
+        alpha: false,
+      });
+    } catch (e) {
+      console.warn('Fallback WebGL initialization', e);
+      renderer = new THREE.WebGLRenderer({ antialias: false });
+    }
+
     renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.2;
     mountRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
+    // Starfield Background
     const starCount = 3000;
     const starGeo = new THREE.BufferGeometry();
     const starPos = new Float32Array(starCount * 3);
@@ -135,14 +148,20 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const starfield = new THREE.Points(starGeo, starMat);
     scene.add(starfield);
 
-    const ambientLight = new THREE.AmbientLight(0x1a2238, 0.4);
+    // Dynamic Lighting
+    const ambientLight = new THREE.AmbientLight(0x334155, 1.2);
     scene.add(ambientLight);
 
-    const sunLight = new THREE.PointLight(0xffffff, 2.5, 0, 0);
+    const dirFillLight = new THREE.DirectionalLight(0x94a3b8, 0.8);
+    dirFillLight.position.set(100, 200, 100);
+    scene.add(dirFillLight);
+
+    const sunLight = new THREE.PointLight(0xffffff, 3.0, 0, 0);
     sunLight.position.set(-280, 0, 0);
     scene.add(sunLight);
     sunLightRef.current = sunLight;
 
+    // Sun Mesh
     const sunTex = createSunTexture();
     const sunGeo = new THREE.SphereGeometry(SCALING.visual.sunRadius, 48, 48);
     const sunMat = new THREE.MeshBasicMaterial({ map: sunTex });
@@ -162,6 +181,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     sunMesh.add(sunCorona);
     sunCoronaRef.current = sunCorona;
 
+    // Earth Group
     const earthGroup = new THREE.Group();
     scene.add(earthGroup);
     earthGroupRef.current = earthGroup;
@@ -170,7 +190,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const earthGeo = new THREE.SphereGeometry(SCALING.visual.earthRadius, 48, 48);
     const earthMat = new THREE.MeshStandardMaterial({
       map: earthTex,
-      roughness: 0.65,
+      roughness: 0.6,
       metalness: 0.1,
     });
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
@@ -182,13 +202,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const atmoMat = new THREE.MeshBasicMaterial({
       color: 0x4da6ff,
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.25,
       side: THREE.BackSide,
     });
     const earthAtmo = new THREE.Mesh(atmoGeo, atmoMat);
     earthMesh.add(earthAtmo);
     earthAtmoRef.current = earthAtmo;
 
+    // Launchpad Marker
     const launchpadGroup = new THREE.Group();
     const pinGeo = new THREE.ConeGeometry(0.5, 1.8, 16);
     const pinMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
@@ -210,6 +231,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     earthMesh.add(launchpadGroup);
     launchpadMarkerRef.current = launchpadGroup;
 
+    // Moon Group
     const moonGroup = new THREE.Group();
     scene.add(moonGroup);
     moonGroupRef.current = moonGroup;
@@ -218,7 +240,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const moonGeo = new THREE.SphereGeometry(SCALING.visual.moonRadius, 36, 36);
     const moonMat = new THREE.MeshStandardMaterial({
       map: moonTex,
-      roughness: 0.9,
+      roughness: 0.85,
       metalness: 0.05,
     });
     const moonMesh = new THREE.Mesh(moonGeo, moonMat);
@@ -236,6 +258,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     moonGroup.add(soiMesh);
     lunarSOIMeshRef.current = soiMesh;
 
+    // Lagrange Group
     const lagrangeGroup = new THREE.Group();
     scene.add(lagrangeGroup);
     lagrangeGroupRef.current = lagrangeGroup;
@@ -267,6 +290,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       lagrangeGroup.add(lpMarker);
     });
 
+    // Orbit Lines
     const earthOrbitPts: THREE.Vector3[] = [];
     for (let i = 0; i <= 128; i++) {
       const theta = (i / 128) * Math.PI * 2;
@@ -306,6 +330,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     earthGroup.add(moonOrbitLine);
     moonOrbitLineRef.current = moonOrbitLine;
 
+    // Rocket 3D Model
     const rocketGroup = new THREE.Group();
     scene.add(rocketGroup);
     rocketGroupRef.current = rocketGroup;
@@ -381,6 +406,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(scGroup);
     spacecraftMarkerRef.current = scGroup;
 
+    // Controls
     const dom = mountRef.current;
     const onMouseDown = (e: MouseEvent) => {
       isDraggingRef.current = true;
@@ -417,15 +443,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     window.addEventListener('mouseup', onMouseUp);
     dom.addEventListener('wheel', onWheel, { passive: false });
 
-    const onResize = () => {
+    const handleResize = () => {
       if (!mountRef.current || !rendererRef.current || !cameraRef.current) return;
-      const w = mountRef.current.clientWidth;
-      const h = mountRef.current.clientHeight;
+      const w = mountRef.current.clientWidth || window.innerWidth || 800;
+      const h = mountRef.current.clientHeight || window.innerHeight || 600;
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(w, h);
+      rendererRef.current.setSize(w, h, false);
     };
-    window.addEventListener('resize', onResize);
+
+    const resizeObserver = new ResizeObserver(() => {
+      handleResize();
+    });
+    resizeObserver.observe(mountRef.current);
+    window.addEventListener('resize', handleResize);
+
+    // Initial resize trigger
+    handleResize();
 
     let animId: number;
     const animate = () => {
@@ -467,12 +501,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     return () => {
       cancelAnimationFrame(animId);
+      resizeObserver.disconnect();
       dom.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       dom.removeEventListener('wheel', onWheel);
-      window.removeEventListener('resize', onResize);
-      if (rendererRef.current && rendererRef.current.domElement) {
+      window.removeEventListener('resize', handleResize);
+      if (rendererRef.current && rendererRef.current.domElement && dom.contains(rendererRef.current.domElement)) {
         dom.removeChild(rendererRef.current.domElement);
         rendererRef.current.dispose();
       }
@@ -699,7 +734,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   return (
     <div
       ref={mountRef}
-      className="relative w-full h-full cursor-grab active:cursor-grabbing select-none overflow-hidden"
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+      className="cursor-grab active:cursor-grabbing select-none overflow-hidden"
     />
   );
 };
