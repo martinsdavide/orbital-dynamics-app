@@ -1203,28 +1203,23 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         padWorldPos.copy(currentEarthWorldPos);
       }
 
-      const rEarthVisual = scales.earthRadius;
-      const rMoonVisual = scales.earthMoonDistance;
+      // Linear astronomical coordinate scale factor: maps physical meters to 3D Three.js scene units
+      const linearScale = scales.earthMoonDistance / MOON.semiMajorAxis;
 
       const rawSplinePts: THREE.Vector3[] = activeTrajectory.points.map((pt, idx) => {
         if (idx === 0) {
           return padWorldPos.clone();
         }
-
-        const frac = Math.max(0, (pt.distanceToEarth - EARTH.radius) / (MOON.semiMajorAxis - EARTH.radius));
-        const scaledDist = rEarthVisual + frac * (rMoonVisual - rEarthVisual);
-        const dMag = Math.sqrt(pt.position.x * pt.position.x + pt.position.y * pt.position.y + pt.position.z * pt.position.z) || 1;
-
         return new THREE.Vector3(
-          currentEarthWorldPos.x + (pt.position.x / dMag) * scaledDist,
-          currentEarthWorldPos.y + (pt.position.y / dMag) * scaledDist,
-          currentEarthWorldPos.z + (pt.position.z / dMag) * scaledDist
+          currentEarthWorldPos.x + pt.position.x * linearScale,
+          currentEarthWorldPos.y + pt.position.y * linearScale,
+          currentEarthWorldPos.z + pt.position.z * linearScale
         );
       });
 
-      // Generate a smooth Catmull-Rom spline curve to eliminate all angular kinks and cusps
-      const curve = new THREE.CatmullRomCurve3(rawSplinePts);
-      const ribbonPts = curve.getPoints(250);
+      // Smooth Catmull-Rom spline with centripetal parameterization (zero cusps, zero kinks, zero self-intersections)
+      const curve = new THREE.CatmullRomCurve3(rawSplinePts, false, 'centripetal', 0.5);
+      const ribbonPts = curve.getPoints(350);
 
       if (transferTrajectoryLineRef.current && ribbonPts.length > 0) {
         transferTrajectoryLineRef.current.geometry.setFromPoints(ribbonPts);
