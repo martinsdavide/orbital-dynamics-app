@@ -9,7 +9,24 @@ export interface TrajectoryPoint {
   distanceToEarth: number; // m
   distanceToMoon: number; // m
   speed: number; // m/s
+  altitudeEarthKm: number; // km
   phase: string;
+}
+
+export interface LaunchWindow {
+  id: string;
+  windowIndex: number;
+  openTimeHours: number; // hours from sim start
+  closeTimeHours: number;
+  durationMinutes: number;
+  type: 'ascending_node' | 'descending_node' | 'direct_equatorial';
+  label: string;
+  launchAzimuth: number; // deg East of North
+  planeAlignmentEfficiency: number; // %
+  planeChangePenaltyDV: number; // m/s
+  tliDeltaV: number; // m/s
+  isOptimal: boolean;
+  synodicStatus: string;
 }
 
 export interface EarthMoonTrajectory {
@@ -30,6 +47,8 @@ export interface EarthMoonTrajectory {
   spaceportRotationBenefit: number; // m/s bonus
   launchAzimuthRequired: number; // deg
   planeChangeDeltaV: number; // m/s penalty from high latitude spaceports
+  launchWindows: LaunchWindow[];
+  selectedWindowIndex: number;
 }
 
 export interface OptimizationTradeoff {

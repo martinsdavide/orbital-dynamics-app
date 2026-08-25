@@ -279,6 +279,9 @@ export function App() {
           onUpdateTrajectory={setActiveTrajectory}
           trajectoryProgress={trajectoryProgress}
           onChangeProgress={setTrajectoryProgress}
+          onSelectLaunchWindow={(win) => {
+            setSimTimeSeconds(win.openTimeHours * 3600);
+          }}
         />
       )}
 

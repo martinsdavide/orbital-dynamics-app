@@ -822,10 +822,40 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         ascentTrajectoryLineRef.current.visible = false;
       }
 
-      const ribbonPts: THREE.Vector3[] = activeTrajectory.points.map((pt) => {
-        const frac = pt.distanceToEarth / MOON.semiMajorAxis;
-        const scaledDist = frac * SCALING.visual.earthMoonDistance;
+      // Get exact world position of the launch base on Earth's surface
+      const padWorldPos = new THREE.Vector3();
+      if (launchpadMarkerRef.current) {
+        launchpadMarkerRef.current.getWorldPosition(padWorldPos);
+      } else {
+        padWorldPos.copy(currentEarthWorldPos);
+      }
+
+      const rEarthVisual = SCALING.visual.earthRadius;
+      const rMoonVisual = SCALING.visual.earthMoonDistance;
+
+      const ribbonPts: THREE.Vector3[] = activeTrajectory.points.map((pt, idx) => {
+        if (idx === 0) {
+          // Trajectory starts right from the launch base on Earth
+          return padWorldPos.clone();
+        }
+
+        if (idx <= 20) {
+          // Atmospheric ascent & gravity turn arc connecting the launch pad to LEO parking orbit
+          const p = idx / 20;
+          const dMag = Math.sqrt(pt.position.x * pt.position.x + pt.position.y * pt.position.y + pt.position.z * pt.position.z) || 1;
+          const targetLEOPos = new THREE.Vector3(
+            currentEarthWorldPos.x + (pt.position.x / dMag) * (rEarthVisual + 1.2),
+            currentEarthWorldPos.y + (pt.position.z / dMag) * (rEarthVisual + 1.2),
+            currentEarthWorldPos.z + (pt.position.y / dMag) * (rEarthVisual + 1.2)
+          );
+          return new THREE.Vector3().lerpVectors(padWorldPos, targetLEOPos, p);
+        }
+
+        // Cislunar transfer & Lunar capture / flyby
+        const frac = Math.max(0, (pt.distanceToEarth - EARTH.radius) / (MOON.semiMajorAxis - EARTH.radius));
+        const scaledDist = rEarthVisual + 1.2 + frac * (rMoonVisual - (rEarthVisual + 1.2));
         const dMag = Math.sqrt(pt.position.x * pt.position.x + pt.position.y * pt.position.y + pt.position.z * pt.position.z) || 1;
+
         return new THREE.Vector3(
           currentEarthWorldPos.x + (pt.position.x / dMag) * scaledDist,
           currentEarthWorldPos.y + (pt.position.z / dMag) * scaledDist,
@@ -833,7 +863,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         );
       });
 
-      if (transferTrajectoryLineRef.current) {
+      if (transferTrajectoryLineRef.current && ribbonPts.length > 0) {
         transferTrajectoryLineRef.current.geometry.setFromPoints(ribbonPts);
         transferTrajectoryLineRef.current.visible = true;
       }

@@ -1,19 +1,93 @@
 import { EARTH, MOON } from './constants';
 import type { Spaceport } from '../types/spaceport';
-import type { EarthMoonTrajectory, MissionTrajectoryType, TrajectoryPoint, OptimizationTradeoff } from '../types/trajectory';
+import type { EarthMoonTrajectory, MissionTrajectoryType, TrajectoryPoint, LaunchWindow, OptimizationTradeoff } from '../types/trajectory';
 import type { Vector3D } from '../types/celestial';
+
+export function calculateLaunchWindows(
+  spaceport: Spaceport,
+  simTimeHours: number = 0
+): LaunchWindow[] {
+  const moonInclinationDeg = 28.58;
+  const lat = spaceport.latitude;
+  const latRad = (lat * Math.PI) / 180;
+  const incRad = (moonInclinationDeg * Math.PI) / 180;
+
+  // Sidereal day length ~23.934 hours
+  const siderealDayHours = 23.9344;
+
+  // Compute nodal launch azimuths
+  let azAscending = 90;
+  let azDescending = 90;
+  let planeEfficiency = 98;
+  let planePenaltyDV = 0;
+
+  if (Math.abs(lat) <= moonInclinationDeg) {
+    const cosAz = Math.cos(incRad) / Math.cos(latRad);
+    const azRad = Math.asin(Math.max(-1, Math.min(1, cosAz)));
+    azAscending = Math.round((azRad * 180) / Math.PI);
+    azDescending = Math.round(180 - azAscending);
+    planeEfficiency = 99.2;
+    planePenaltyDV = 0;
+  } else {
+    // High latitude spaceport (e.g. Baikonur at 45.9°)
+    azAscending = 90;
+    azDescending = 90;
+    const deltaIncRad = ((Math.abs(lat) - moonInclinationDeg) * Math.PI) / 180;
+    const vLEO = Math.sqrt(EARTH.mu / (EARTH.radius + 200000));
+    planePenaltyDV = Math.round(2 * vLEO * Math.sin(deltaIncRad / 2));
+    planeEfficiency = Math.max(75, Math.round(100 - (planePenaltyDV / 3140) * 100));
+  }
+
+  // Calculate upcoming 4 daily launch windows from current sim time
+  const currentDayFraction = (simTimeHours % siderealDayHours) / siderealDayHours;
+  const windows: LaunchWindow[] = [];
+
+  const nodeOffsets = [
+    { type: 'ascending_node' as const, frac: 0.18, az: azAscending, label: 'Ascending Node Passage (NE Azimuth)' },
+    { type: 'descending_node' as const, frac: 0.68, az: azDescending, label: 'Descending Node Passage (SE Azimuth)' },
+    { type: 'ascending_node' as const, frac: 1.18, az: azAscending, label: 'Next Day Ascending Passage (+24h)' },
+    { type: 'descending_node' as const, frac: 1.68, az: azDescending, label: 'Next Day Descending Passage (+24h)' },
+  ];
+
+  nodeOffsets.forEach((node, idx) => {
+    let deltaHours = (node.frac - currentDayFraction) * siderealDayHours;
+    while (deltaHours < 0.2) deltaHours += siderealDayHours;
+
+    const openTime = simTimeHours + deltaHours;
+    const duration = Math.abs(lat) < 15 ? 45 : 30; // equatorial spaceports have wider launch windows
+
+    windows.push({
+      id: 'lw_' + spaceport.id + '_' + idx,
+      windowIndex: idx,
+      openTimeHours: Number(openTime.toFixed(2)),
+      closeTimeHours: Number((openTime + duration / 60).toFixed(2)),
+      durationMinutes: duration,
+      type: node.type,
+      label: node.label,
+      launchAzimuth: node.az,
+      planeAlignmentEfficiency: planeEfficiency,
+      planeChangePenaltyDV: planePenaltyDV,
+      tliDeltaV: 3140 + planePenaltyDV,
+      isOptimal: idx === 0 || (idx === 1 && Math.abs(lat) < 15),
+      synodicStatus: idx === 0 ? 'Optimal Lunar Lead Alignment' : 'Secondary Cislunar Geometry',
+    });
+  });
+
+  return windows;
+}
 
 export function solveEarthMoonTrajectory(
   type: MissionTrajectoryType,
   spaceport: Spaceport,
   departureAltitudeMeters: number = 200000,
-  flightTimeHoursTarget: number = 72
+  flightTimeHoursTarget: number = 72,
+  simTimeHours: number = 0,
+  selectedWindowIdx: number = 0
 ): EarthMoonTrajectory {
   const r1 = EARTH.radius + departureAltitudeMeters;
   const r2 = MOON.semiMajorAxis;
 
   const vLEO = Math.sqrt(EARTH.mu / r1);
-
   const aTrans = (r1 + r2) / 2;
   const vTransPerigee = Math.sqrt(EARTH.mu * (2 / r1 - 1 / aTrans));
 
@@ -25,7 +99,7 @@ export function solveEarthMoonTrajectory(
   const tliDeltaV = vTLIInertial - vLEO;
 
   const spaceportBoost = spaceport.equatorialBoostVelocity;
-  const moonInclinationDeg = 28.5;
+  const moonInclinationDeg = 28.58;
   let planeChangeDeltaV = 0;
 
   if (spaceport.latitude > moonInclinationDeg) {
@@ -61,8 +135,9 @@ export function solveEarthMoonTrajectory(
   }
 
   const totalMissionDeltaV = Math.round(tliDeltaV + loiDeltaV + planeChangeDeltaV - spaceportBoost);
+  const launchWindows = calculateLaunchWindows(spaceport, simTimeHours);
 
-  const points = generateTrajectoryPoints(type, departureAltitudeMeters, flightTimeHoursTarget);
+  const points = generateTrajectoryPoints(type, spaceport, departureAltitudeMeters, flightTimeHoursTarget);
 
   return {
     id: 'traj_' + type + '_' + spaceport.id,
@@ -82,37 +157,107 @@ export function solveEarthMoonTrajectory(
     spaceportRotationBenefit: Math.round(spaceportBoost),
     launchAzimuthRequired,
     planeChangeDeltaV,
+    launchWindows,
+    selectedWindowIndex: selectedWindowIdx,
   };
 }
 
 function generateTrajectoryPoints(
   type: MissionTrajectoryType,
+  spaceport: Spaceport,
   leoAlt: number,
   flightTimeHours: number
 ): TrajectoryPoint[] {
   const points: TrajectoryPoint[] = [];
-  const totalSteps = 240;
-  const totalSeconds = flightTimeHours * 3600;
-  const rLEO = EARTH.radius + leoAlt;
+  const rEarth = EARTH.radius;
+  const rLEO = rEarth + leoAlt;
   const rMoon = MOON.semiMajorAxis;
-
+  const totalSeconds = flightTimeHours * 3600;
   const omegaMoon = (2 * Math.PI) / MOON.orbitalPeriod;
-  const tliLeadAngle = (125 * Math.PI) / 180;
 
-  for (let i = 0; i <= totalSteps; i++) {
-    const fraction = i / totalSteps;
-    const t = fraction * totalSeconds;
+  // Spaceport initial surface position
+  const latRad = (spaceport.latitude * Math.PI) / 180;
+  const lonRad = (spaceport.longitude * Math.PI) / 180;
+  // Phase 1: Launch Pad to LEO Insertion (Steps 0 to 20)
+  const ascentSteps = 20;
+  const tAscent = 600; // 10 minutes to orbit
+  for (let i = 0; i <= ascentSteps; i++) {
+    const p = i / ascentSteps;
+    const t = p * tAscent;
+    const curAlt = p * leoAlt;
+    const rCur = rEarth + curAlt;
+
+    // Curve along launch azimuth
+    const defaultAz = (spaceport.minLaunchAzimuth + spaceport.maxLaunchAzimuth) / 2;
+    const azRad = (defaultAz * Math.PI) / 180;
+    const dLon = p * 0.25 * Math.sin(azRad);
+    const dLat = p * 0.15 * Math.cos(azRad);
+
+    const curLat = latRad + dLat;
+    const curLon = lonRad + dLon;
+
+    const x = rCur * Math.cos(curLat) * Math.cos(curLon);
+    const y = rCur * Math.sin(curLat);
+    const z = -rCur * Math.cos(curLat) * Math.sin(curLon);
+
+    points.push({
+      t,
+      position: { x, y, z },
+      velocity: { x: 0, y: 0, z: 0 },
+      distanceToEarth: rCur,
+      distanceToMoon: rMoon - rCur,
+      speed: Math.round(spaceport.equatorialBoostVelocity + p * (7800 - spaceport.equatorialBoostVelocity)),
+      altitudeEarthKm: Math.round(curAlt / 1000),
+      phase: i === 0 ? 'Launch Pad Liftoff' : i < 10 ? 'Atmospheric Ascent & Gravity Turn' : 'LEO Insertion Burn',
+    });
+  }
+
+  // Phase 2: LEO Parking Orbit Coast (Steps 21 to 40)
+  const parkingSteps = 20;
+  const tParking = 5400; // 90 min orbital period
+  const lastAscentPoint = points[points.length - 1];
+  const startAngle = Math.atan2(-lastAscentPoint.position.z, lastAscentPoint.position.x);
+
+  for (let i = 1; i <= parkingSteps; i++) {
+    const p = i / parkingSteps;
+    const t = tAscent + p * tParking;
+    const orbitAngle = startAngle + p * Math.PI * 1.2;
+
+    const x = rLEO * Math.cos(orbitAngle);
+    const y = rLEO * 0.1 * Math.sin(orbitAngle);
+    const z = -rLEO * Math.sin(orbitAngle);
+
+    points.push({
+      t,
+      position: { x, y, z },
+      velocity: { x: 0, y: 0, z: 0 },
+      distanceToEarth: rLEO,
+      distanceToMoon: rMoon - rLEO,
+      speed: 7780,
+      altitudeEarthKm: Math.round(leoAlt / 1000),
+      phase: i === parkingSteps ? 'Trans-Lunar Injection (TLI) Burn' : 'LEO Parking Orbit Coast',
+    });
+  }
+
+  // Phase 3 & 4: Trans-Lunar Transfer & Lunar Capture / Flyby (Steps 41 to 240)
+  const transferSteps = 200;
+  const tliLeadAngle = (125 * Math.PI) / 180;
+  const remainingSeconds = totalSeconds - (tAscent + tParking);
+
+  for (let i = 1; i <= transferSteps; i++) {
+    const fraction = i / transferSteps;
+    const t = tAscent + tParking + fraction * remainingSeconds;
 
     let rCur = 0;
     let angleRad = 0;
-    let phase = 'Cislunar Coast';
+    let phase = 'Trans-Lunar Coast (Cislunar Space)';
 
     if (type === 'free_return') {
       if (fraction <= 0.48) {
         const p = fraction / 0.48;
         rCur = rLEO + (rMoon - rLEO) * Math.sin((p * Math.PI) / 2);
         angleRad = tliLeadAngle * (1 - p * 0.9);
-        phase = 'Trans-Lunar Coast (Outbound)';
+        phase = 'Trans-Lunar Outbound Coast';
       } else if (fraction <= 0.52) {
         const p = (fraction - 0.48) / 0.04;
         const moonCurrentAngle = omegaMoon * (0.5 * totalSeconds);
@@ -128,26 +273,28 @@ function generateTrajectoryPoints(
         const y = moonCenter.y + swingRadius * Math.sin(moonCurrentAngle + swingAngle);
         const z = swingRadius * 0.2 * Math.sin(p * Math.PI);
 
+        const distEarth = Math.sqrt(x * x + y * y + z * z);
         points.push({
           t,
           position: { x, y, z },
           velocity: { x: 0, y: 0, z: 0 },
-          distanceToEarth: Math.sqrt(x * x + y * y + z * z),
+          distanceToEarth: distEarth,
           distanceToMoon: swingRadius,
-          speed: 2.1,
-          phase: 'Lunar Flyby / Gravitational Slingshot',
+          speed: 2150,
+          altitudeEarthKm: Math.round((distEarth - rEarth) / 1000),
+          phase: 'Lunar Far-Side Flyby / Gravity Slingshot',
         });
         continue;
       } else {
         const p = (fraction - 0.52) / 0.48;
         rCur = rMoon - (rMoon - rLEO) * Math.sin((p * Math.PI) / 2);
         angleRad = omegaMoon * (0.52 * totalSeconds) + Math.PI * p * 0.85;
-        phase = 'Earth Return Coast';
+        phase = 'Earth Atmospheric Re-entry Return Arc';
       }
     } else {
       rCur = rLEO + (rMoon - rLEO) * Math.sin((fraction * Math.PI) / 2);
       angleRad = tliLeadAngle * (1 - fraction * 0.95);
-      if (fraction > 0.95) phase = 'Lunar Orbit Insertion';
+      if (fraction > 0.95) phase = 'Lunar Orbit Insertion (LOI) Burn';
     }
 
     const x = rCur * Math.cos(angleRad);
@@ -169,7 +316,8 @@ function generateTrajectoryPoints(
       velocity: { x: 0, y: 0, z: 0 },
       distanceToEarth: distEarth,
       distanceToMoon: distMoon,
-      speed,
+      speed: Math.round(speed),
+      altitudeEarthKm: Math.round((distEarth - rEarth) / 1000),
       phase,
     });
   }
