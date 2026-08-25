@@ -429,7 +429,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     geocentricSolarOrbitLineRef.current = geocentricSolarOrbitLine;
 
     // Earth Umbra Shadow Cone (pointing opposite the Sun)
-    const shadowConeGeo = new THREE.ConeGeometry(1, 1, 32, 1, true);
+    const shadowConeGeo = new THREE.ConeGeometry(1, 1, 24, 8, true);
     shadowConeGeo.translate(0, -0.5, 0); // apex at origin (0,0,0)
     const shadowConeMat = new THREE.MeshBasicMaterial({
       color: 0x060919,
@@ -439,6 +439,18 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       depthWrite: false,
     });
     const earthUmbraShadowCone = new THREE.Mesh(shadowConeGeo, shadowConeMat);
+
+    // White semitransparent wireframe cage overlay
+    const shadowWireframeMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false,
+    });
+    const shadowWireframeMesh = new THREE.Mesh(shadowConeGeo, shadowWireframeMat);
+    earthUmbraShadowCone.add(shadowWireframeMesh);
+
     scene.add(earthUmbraShadowCone);
     earthUmbraShadowConeRef.current = earthUmbraShadowCone;
 
