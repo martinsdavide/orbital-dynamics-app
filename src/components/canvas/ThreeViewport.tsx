@@ -67,6 +67,10 @@ interface ThreeViewportProps {
   showDynamicTrails: boolean;
   showLunarSOI: boolean;
   showAtmosphereGlow: boolean;
+  showGeocentricSolarOrbit: boolean;
+  showEarthUmbraShadow: boolean;
+  showGeoLeoBelts: boolean;
+  showLineOfNodes: boolean;
   selectedSpaceport: Spaceport;
   activeRocket: RocketPreset;
   rocketTelemetry: RocketTelemetry;
@@ -87,6 +91,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   showDynamicTrails,
   showLunarSOI,
   showAtmosphereGlow,
+  showGeocentricSolarOrbit,
+  showEarthUmbraShadow,
+  showGeoLeoBelts,
+  showLineOfNodes,
   selectedSpaceport,
   rocketTelemetry,
   activeTrajectory,
@@ -113,6 +121,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const moonOrbitLineRef = useRef<THREE.Line | null>(null);
   const composedMoonSunLineRef = useRef<THREE.Line | null>(null);
   const lagrangeGroupRef = useRef<THREE.Group | null>(null);
+  const geocentricSolarOrbitLineRef = useRef<THREE.Line | null>(null);
+  const earthUmbraShadowConeRef = useRef<THREE.Mesh | null>(null);
+  const geoBeltLineRef = useRef<THREE.Line | null>(null);
+  const leoBeltLineRef = useRef<THREE.Line | null>(null);
+  const lineOfNodesLineRef = useRef<THREE.Line | null>(null);
 
   // Dynamic Live Trail Breadcrumb Refs
   const earthDynamicTrailLineRef = useRef<THREE.Line | null>(null);
@@ -806,10 +819,21 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         composedMoonSunLineRef.current.position.set(0, 0, 0);
         composedMoonSunLineRef.current.visible = showComposedMoonSunOrbit && appMode === 'system';
       }
+      if (geocentricSolarOrbitLineRef.current) geocentricSolarOrbitLineRef.current.visible = false;
+      if (earthUmbraShadowConeRef.current) earthUmbraShadowConeRef.current.visible = false;
+      if (geoBeltLineRef.current) geoBeltLineRef.current.visible = false;
+      if (leoBeltLineRef.current) leoBeltLineRef.current.visible = false;
+      if (lineOfNodesLineRef.current) lineOfNodesLineRef.current.visible = false;
     } else {
-      // Geocentric / Barycentric
+      // Geocentric / Barycentric: Earth at origin (0, 0, 0)
       currentEarthWorldPos.set(0, 0, 0);
       currentMoonWorldPos.set(moonX, moonY, moonZ);
+
+      // In geocentric frame, Sun moves along the Ecliptic plane inclined at axial tilt
+      const sunAngle = (ephemeris.timeSeconds / EARTH.orbitalPeriod) * (2 * Math.PI) + Math.PI;
+      const sunX = Math.cos(sunAngle) * sunDist;
+      const sunZ = Math.sin(sunAngle) * sunDist;
+      const sunY = Math.sin(sunAngle) * (sunDist * Math.sin(EARTH.axialTilt));
 
       if (earthGroupRef.current) {
         earthGroupRef.current.position.set(0, 0, 0);
@@ -819,8 +843,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         moonGroupRef.current.visible = true;
       }
       if (sunMeshRef.current && sunLightRef.current) {
-        sunMeshRef.current.position.set(-sunDist, 0, 0);
-        sunLightRef.current.position.set(-sunDist, 0, 0);
+        sunMeshRef.current.position.set(sunX, sunY, sunZ);
+        sunLightRef.current.position.set(sunX, sunY, sunZ);
         sunMeshRef.current.visible = appMode === 'system';
       }
 
@@ -829,6 +853,73 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       }
       if (composedMoonSunLineRef.current) {
         composedMoonSunLineRef.current.visible = false;
+      }
+
+      // 1. Apparent Ecliptic Solar Orbit Line (Gold ring around Earth)
+      if (geocentricSolarOrbitLineRef.current) {
+        const eclipticPts: THREE.Vector3[] = [];
+        for (let i = 0; i <= 256; i++) {
+          const theta = (i / 256) * Math.PI * 2;
+          const ex = Math.cos(theta) * sunDist;
+          const ez = Math.sin(theta) * sunDist;
+          const ey = Math.sin(theta) * (sunDist * Math.sin(EARTH.axialTilt));
+          eclipticPts.push(new THREE.Vector3(ex, ey, ez));
+        }
+        geocentricSolarOrbitLineRef.current.geometry.setFromPoints(eclipticPts);
+        geocentricSolarOrbitLineRef.current.visible = showGeocentricSolarOrbit && appMode === 'system';
+      }
+
+      // 2. Earth Umbra Shadow Cone (pointing directly opposite the Sun)
+      if (earthUmbraShadowConeRef.current) {
+        const shadowDir = new THREE.Vector3(-sunX, -sunY, -sunZ).normalize();
+        const shadowLen = emDistScale * 1.6;
+        earthUmbraShadowConeRef.current.position.copy(
+          new THREE.Vector3().addScaledVector(shadowDir, shadowLen * 0.5)
+        );
+        earthUmbraShadowConeRef.current.scale.set(
+          scales.earthRadius * 0.45,
+          shadowLen * 0.5,
+          scales.earthRadius * 0.45
+        );
+        earthUmbraShadowConeRef.current.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 1, 0),
+          shadowDir
+        );
+        earthUmbraShadowConeRef.current.visible = showEarthUmbraShadow && appMode === 'system';
+      }
+
+      // 3. GEO & LEO Belts
+      if (geoBeltLineRef.current) {
+        const geoRadius = scales.earthRadius * (42164 / 6371);
+        const geoPts: THREE.Vector3[] = [];
+        for (let i = 0; i <= 96; i++) {
+          const theta = (i / 96) * Math.PI * 2;
+          geoPts.push(new THREE.Vector3(Math.cos(theta) * geoRadius, 0, Math.sin(theta) * geoRadius));
+        }
+        geoBeltLineRef.current.geometry.setFromPoints(geoPts);
+        geoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
+      }
+
+      if (leoBeltLineRef.current) {
+        const leoRadius = scales.earthRadius * 1.06;
+        const leoPts: THREE.Vector3[] = [];
+        for (let i = 0; i <= 64; i++) {
+          const theta = (i / 64) * Math.PI * 2;
+          leoPts.push(new THREE.Vector3(Math.cos(theta) * leoRadius, 0, Math.sin(theta) * leoRadius));
+        }
+        leoBeltLineRef.current.geometry.setFromPoints(leoPts);
+        leoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
+      }
+
+      // 4. Ecliptic-Lunar Line of Nodes
+      if (lineOfNodesLineRef.current) {
+        const nodeDist = emDistScale * 1.25;
+        const nodePts = [
+          new THREE.Vector3(-nodeDist, 0, 0),
+          new THREE.Vector3(nodeDist, 0, 0),
+        ];
+        lineOfNodesLineRef.current.geometry.setFromPoints(nodePts);
+        lineOfNodesLineRef.current.visible = showLineOfNodes && appMode === 'system';
       }
     }
 
@@ -1058,6 +1149,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     showDynamicTrails,
     showLunarSOI,
     showAtmosphereGlow,
+    showGeocentricSolarOrbit,
+    showEarthUmbraShadow,
+    showGeoLeoBelts,
+    showLineOfNodes,
     selectedSpaceport,
     rocketTelemetry,
     activeTrajectory,

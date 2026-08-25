@@ -40,6 +40,10 @@ export function App() {
   const [showDynamicTrails, setShowDynamicTrails] = useState<boolean>(true);
   const [showLunarSOI, setShowLunarSOI] = useState<boolean>(true);
   const [showAtmosphereGlow, setShowAtmosphereGlow] = useState<boolean>(true);
+  const [showGeocentricSolarOrbit, setShowGeocentricSolarOrbit] = useState<boolean>(true);
+  const [showEarthUmbraShadow, setShowEarthUmbraShadow] = useState<boolean>(true);
+  const [showGeoLeoBelts, setShowGeoLeoBelts] = useState<boolean>(true);
+  const [showLineOfNodes, setShowLineOfNodes] = useState<boolean>(true);
 
   const [selectedSpaceport, setSelectedSpaceport] = useState<Spaceport>(SPACEPORTS[0]);
   const [activeRocket, setActiveRocket] = useState<RocketPreset>(ROCKET_PRESETS[0]);
@@ -211,6 +215,10 @@ export function App() {
         showDynamicTrails={showDynamicTrails}
         showLunarSOI={showLunarSOI}
         showAtmosphereGlow={showAtmosphereGlow}
+        showGeocentricSolarOrbit={showGeocentricSolarOrbit}
+        showEarthUmbraShadow={showEarthUmbraShadow}
+        showGeoLeoBelts={showGeoLeoBelts}
+        showLineOfNodes={showLineOfNodes}
         selectedSpaceport={selectedSpaceport}
         activeRocket={activeRocket}
         rocketTelemetry={rocketTelemetry}
@@ -249,6 +257,14 @@ export function App() {
           onToggleLunarSOI={() => setShowLunarSOI(!showLunarSOI)}
           showAtmosphereGlow={showAtmosphereGlow}
           onToggleAtmosphere={() => setShowAtmosphereGlow(!showAtmosphereGlow)}
+          showGeocentricSolarOrbit={showGeocentricSolarOrbit}
+          onToggleGeocentricSolarOrbit={() => setShowGeocentricSolarOrbit(!showGeocentricSolarOrbit)}
+          showEarthUmbraShadow={showEarthUmbraShadow}
+          onToggleEarthUmbraShadow={() => setShowEarthUmbraShadow(!showEarthUmbraShadow)}
+          showGeoLeoBelts={showGeoLeoBelts}
+          onToggleGeoLeoBelts={() => setShowGeoLeoBelts(!showGeoLeoBelts)}
+          showLineOfNodes={showLineOfNodes}
+          onToggleLineOfNodes={() => setShowLineOfNodes(!showLineOfNodes)}
           ephemeris={ephemeris}
         />
       )}
