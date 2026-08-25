@@ -149,7 +149,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     const width = mountRef.current.clientWidth || window.innerWidth || 1200;
     const height = mountRef.current.clientHeight || window.innerHeight || 800;
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 50000);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000);
     cameraRef.current = camera;
     camera.position.set(0, 100, 150);
 
@@ -546,9 +546,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      const zoomFactor = Math.exp(e.deltaY * 0.0015);
       cameraSphericalRef.current.radius = Math.max(
-        12,
-        Math.min(1200, cameraSphericalRef.current.radius * (1 + e.deltaY * 0.0012))
+        1.5,
+        Math.min(35000, cameraSphericalRef.current.radius * zoomFactor)
       );
     };
 
