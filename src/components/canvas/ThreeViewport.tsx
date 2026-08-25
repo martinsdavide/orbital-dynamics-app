@@ -327,31 +327,27 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(earthOrbitLine);
     earthOrbitLineRef.current = earthOrbitLine;
 
-    // 2. Composed Lunar Orbit around the Sun (13.37-Cycle Cycloid Wave Path)
+    // 2. Composed Lunar Orbit around the Sun (13.37-Wave Physically-Convex Epicycloid)
+    // In real astrodynamics, v_Earth (30 km/s) >> v_Moon (1 km/s), so the Moon's path around the Sun
+    // is everywhere strictly convex towards the Sun with 13 smooth sinusoidal ripples and NO retrogrades or cusps.
     const composedMoonPts: THREE.Vector3[] = [];
-    const totalYearSteps = 1000;
+    const totalYearSteps = 1200;
     const moonToEarthRatio = EARTH.orbitalPeriod / MOON.orbitalPeriod; // ~13.368 lunar cycles/year
     const rSE = SCALING.visual.sunEarthDistance;
-    const rEM = SCALING.visual.earthMoonDistance;
+    // Visually scaled wave amplitude (kept within convex limit to avoid mathematical cusps)
+    const waveAmplitude = 12.5;
 
     for (let i = 0; i <= totalYearSteps; i++) {
       const thetaE = (i / totalYearSteps) * Math.PI * 2;
-      const thetaM = thetaE * moonToEarthRatio + 0.5;
+      const thetaM = thetaE * moonToEarthRatio;
 
-      const earthX = Math.cos(thetaE) * rSE;
-      const earthZ = Math.sin(thetaE) * rSE;
+      // Heliocentric radial distance with smooth 13-wave lunar undulation
+      const rCur = rSE + waveAmplitude * Math.cos(thetaM);
+      const earthX = Math.cos(thetaE) * rCur;
+      const earthZ = Math.sin(thetaE) * rCur;
+      const moonRelY = Math.sin(thetaM) * 3.2;
 
-      const moonRelX = Math.cos(thetaM) * rEM;
-      const moonRelZ = Math.sin(thetaM) * rEM;
-      const moonRelY = Math.sin(thetaM) * (rEM * Math.tan(MOON.inclinationToEcliptic));
-
-      composedMoonPts.push(
-        new THREE.Vector3(
-          earthX + moonRelX,
-          moonRelY,
-          earthZ + moonRelZ
-        )
-      );
+      composedMoonPts.push(new THREE.Vector3(earthX, moonRelY, earthZ));
     }
     const composedMoonGeo = new THREE.BufferGeometry().setFromPoints(composedMoonPts);
     const composedMoonMat = new THREE.LineBasicMaterial({
@@ -833,35 +829,25 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const rEarthVisual = SCALING.visual.earthRadius;
       const rMoonVisual = SCALING.visual.earthMoonDistance;
 
-      const ribbonPts: THREE.Vector3[] = activeTrajectory.points.map((pt, idx) => {
+      const rawSplinePts: THREE.Vector3[] = activeTrajectory.points.map((pt, idx) => {
         if (idx === 0) {
-          // Trajectory starts right from the launch base on Earth
           return padWorldPos.clone();
         }
 
-        if (idx <= 20) {
-          // Atmospheric ascent & gravity turn arc connecting the launch pad to LEO parking orbit
-          const p = idx / 20;
-          const dMag = Math.sqrt(pt.position.x * pt.position.x + pt.position.y * pt.position.y + pt.position.z * pt.position.z) || 1;
-          const targetLEOPos = new THREE.Vector3(
-            currentEarthWorldPos.x + (pt.position.x / dMag) * (rEarthVisual + 1.2),
-            currentEarthWorldPos.y + (pt.position.z / dMag) * (rEarthVisual + 1.2),
-            currentEarthWorldPos.z + (pt.position.y / dMag) * (rEarthVisual + 1.2)
-          );
-          return new THREE.Vector3().lerpVectors(padWorldPos, targetLEOPos, p);
-        }
-
-        // Cislunar transfer & Lunar capture / flyby
         const frac = Math.max(0, (pt.distanceToEarth - EARTH.radius) / (MOON.semiMajorAxis - EARTH.radius));
-        const scaledDist = rEarthVisual + 1.2 + frac * (rMoonVisual - (rEarthVisual + 1.2));
+        const scaledDist = rEarthVisual + frac * (rMoonVisual - rEarthVisual);
         const dMag = Math.sqrt(pt.position.x * pt.position.x + pt.position.y * pt.position.y + pt.position.z * pt.position.z) || 1;
 
         return new THREE.Vector3(
           currentEarthWorldPos.x + (pt.position.x / dMag) * scaledDist,
-          currentEarthWorldPos.y + (pt.position.z / dMag) * scaledDist,
-          currentEarthWorldPos.z + (pt.position.y / dMag) * scaledDist
+          currentEarthWorldPos.y + (pt.position.y / dMag) * scaledDist,
+          currentEarthWorldPos.z + (pt.position.z / dMag) * scaledDist
         );
       });
+
+      // Generate a smooth Catmull-Rom spline curve to eliminate all angular kinks and cusps
+      const curve = new THREE.CatmullRomCurve3(rawSplinePts);
+      const ribbonPts = curve.getPoints(250);
 
       if (transferTrajectoryLineRef.current && ribbonPts.length > 0) {
         transferTrajectoryLineRef.current.geometry.setFromPoints(ribbonPts);
