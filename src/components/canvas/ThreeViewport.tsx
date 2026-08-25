@@ -590,20 +590,82 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     scene.add(transferLine);
     transferTrajectoryLineRef.current = transferLine;
 
+    // High-Visibility Lunar Mission Spacecraft & HUD Target Beacon
     const scGroup = new THREE.Group();
-    const scGeo = new THREE.OctahedronGeometry(0.7, 0);
-    const scMat = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      roughness: 0.2,
+    scGroup.name = 'lunar_spacecraft';
+
+    // 1. Service Module Body (Cylindrical hull)
+    const smGeo = new THREE.CylinderGeometry(0.9, 0.9, 2.2, 24);
+    const smMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      roughness: 0.25,
       metalness: 0.8,
     });
-    const scMesh = new THREE.Mesh(scGeo, scMat);
-    scGroup.add(scMesh);
+    const smMesh = new THREE.Mesh(smGeo, smMat);
+    smMesh.rotation.x = Math.PI / 2;
+    scGroup.add(smMesh);
 
-    const panelGeo = new THREE.BoxGeometry(2.4, 0.05, 0.5);
-    const panelMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, metalness: 0.9 });
-    const panelMesh = new THREE.Mesh(panelGeo, panelMat);
-    scGroup.add(panelMesh);
+    // 2. Command Module (Gold thermal insulation capsule)
+    const cmGeo = new THREE.ConeGeometry(0.9, 1.4, 24);
+    const cmMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b, // Gold thermal foil
+      roughness: 0.2,
+      metalness: 0.9,
+    });
+    const cmMesh = new THREE.Mesh(cmGeo, cmMat);
+    cmMesh.position.z = 1.8;
+    cmMesh.rotation.x = Math.PI / 2;
+    scGroup.add(cmMesh);
+
+    // 3. Main Propulsion Engine Bell (Titanium)
+    const engineGeo = new THREE.ConeGeometry(0.5, 0.8, 16);
+    const engineMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.95 });
+    const engineMesh = new THREE.Mesh(engineGeo, engineMat);
+    engineMesh.position.z = -1.4;
+    engineMesh.rotation.x = -Math.PI / 2;
+    scGroup.add(engineMesh);
+
+    // 4. Extended Quad Solar Panel Wings
+    const wingGeo = new THREE.BoxGeometry(6.4, 0.08, 0.85);
+    const wingMat = new THREE.MeshStandardMaterial({
+      color: 0x0284c7, // Solar cell blue
+      roughness: 0.3,
+      metalness: 0.85,
+    });
+    const wingMesh1 = new THREE.Mesh(wingGeo, wingMat);
+    wingMesh1.position.z = -0.2;
+    scGroup.add(wingMesh1);
+
+    const wingMesh2 = new THREE.Mesh(wingGeo, wingMat);
+    wingMesh2.position.z = -0.2;
+    wingMesh2.rotation.z = Math.PI / 2;
+    scGroup.add(wingMesh2);
+
+    // 5. Luminous HUD Target Reticle Diamond & Beacon Halo (Guarantees extreme visibility from any distance)
+    const reticleGeo = new THREE.OctahedronGeometry(3.6, 0);
+    const reticleMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff, // Electric Cyan
+      wireframe: true,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const reticleMesh = new THREE.Mesh(reticleGeo, reticleMat);
+    scGroup.add(reticleMesh);
+
+    const haloGeo = new THREE.RingGeometry(4.2, 4.8, 32);
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.65,
+    });
+    const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+    scGroup.add(haloMesh);
+
+    // 6. Beacon Point Light (Illuminates vehicle and immediate cislunar path)
+    const scBeaconLight = new THREE.PointLight(0x00f0ff, 3.5, 45, 1.2);
+    scGroup.add(scBeaconLight);
+
     scene.add(scGroup);
     spacecraftMarkerRef.current = scGroup;
 
@@ -1201,9 +1263,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     } else if (cameraPreset === 'spaceport' && launchpadMarkerRef.current) {
       launchpadMarkerRef.current.getWorldPosition(cameraTargetRef.current);
       cameraSphericalRef.current.radius = scales.earthCameraRadius * 0.55;
-    } else if (cameraPreset === 'rocket' && rocketGroupRef.current && appMode === 'launch') {
-      cameraTargetRef.current.copy(rocketGroupRef.current.position);
-      cameraSphericalRef.current.radius = 12;
+    } else if (cameraPreset === 'rocket') {
+      if (appMode === 'launch' && rocketGroupRef.current) {
+        cameraTargetRef.current.copy(rocketGroupRef.current.position);
+        cameraSphericalRef.current.radius = 12;
+      } else if (appMode === 'transfer' && spacecraftMarkerRef.current) {
+        cameraTargetRef.current.copy(spacecraftMarkerRef.current.position);
+        cameraSphericalRef.current.radius = 18;
+      }
     } else if (cameraPreset === 'earthrise' && moonGroupRef.current) {
       cameraTargetRef.current.copy(currentMoonWorldPos);
       cameraSphericalRef.current.radius = scales.moonCameraRadius * 0.7;
