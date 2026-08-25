@@ -92,6 +92,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const prevMousePosRef = useRef({ x: 0, y: 0 });
   const cameraSphericalRef = useRef({ radius: 140, theta: Math.PI / 4, phi: Math.PI / 3 });
   const cameraTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
+  const prevFrameRef = useRef<ReferenceFrame>(referenceFrame);
+  const prevAppModeRef = useRef<ActiveAppMode>(appMode);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -614,6 +616,14 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     let currentEarthWorldPos = new THREE.Vector3(0, 0, 0);
     let currentMoonWorldPos = new THREE.Vector3(0, 0, 0);
 
+    // Clear trail breadcrumbs when switching reference frames or app modes
+    if (prevFrameRef.current !== referenceFrame || prevAppModeRef.current !== appMode) {
+      prevFrameRef.current = referenceFrame;
+      prevAppModeRef.current = appMode;
+      earthTrailPositionsRef.current = [];
+      moonTrailPositionsRef.current = [];
+    }
+
     if (referenceFrame === 'heliocentric') {
       const earthAngle = (ephemeris.timeSeconds / EARTH.orbitalPeriod) * (2 * Math.PI);
       const sunDist = SCALING.visual.sunEarthDistance;
@@ -638,7 +648,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         moonGroupRef.current.visible = true;
       }
 
-      // Center heliocentric orbit lines at Sun (0, 0, 0)
+      // Heliocentric orbit lines centered at Sun (0, 0, 0)
       if (earthOrbitLineRef.current) {
         earthOrbitLineRef.current.position.set(0, 0, 0);
         earthOrbitLineRef.current.visible = showEarthOrbit && appMode === 'system';
@@ -665,14 +675,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         sunMeshRef.current.visible = appMode === 'system';
       }
 
-      // Offset heliocentric trails relative to Sun in geocentric view
       if (earthOrbitLineRef.current) {
-        earthOrbitLineRef.current.position.set(-280, 0, 0);
-        earthOrbitLineRef.current.visible = showEarthOrbit && appMode === 'system';
+        earthOrbitLineRef.current.visible = false;
       }
       if (composedMoonSunLineRef.current) {
-        composedMoonSunLineRef.current.position.set(-280, 0, 0);
-        composedMoonSunLineRef.current.visible = showComposedMoonSunOrbit && appMode === 'system';
+        composedMoonSunLineRef.current.visible = false;
       }
     }
 
@@ -818,11 +825,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const ribbonPts: THREE.Vector3[] = activeTrajectory.points.map((pt) => {
         const frac = pt.distanceToEarth / MOON.semiMajorAxis;
         const scaledDist = frac * SCALING.visual.earthMoonDistance;
-        const dMag = Math.sqrt(pt.position.x * pt.position.x + pt.position.y * pt.position.y + pt.position.z * pt.position.z);
+        const dMag = Math.sqrt(pt.position.x * pt.position.x + pt.position.y * pt.position.y + pt.position.z * pt.position.z) || 1;
         return new THREE.Vector3(
-          (pt.position.x / dMag) * scaledDist,
-          (pt.position.z / dMag) * scaledDist,
-          (pt.position.y / dMag) * scaledDist
+          currentEarthWorldPos.x + (pt.position.x / dMag) * scaledDist,
+          currentEarthWorldPos.y + (pt.position.z / dMag) * scaledDist,
+          currentEarthWorldPos.z + (pt.position.y / dMag) * scaledDist
         );
       });
 
