@@ -691,21 +691,32 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       earthOrbitLineRef.current.scale.setScalar(1);
     }
 
-    // Rebuild Composed Lunar Cycloid Orbit around Sun (Smooth & Convex)
+    // Rebuild Composed Lunar Epicycloid Orbit around Sun
+    // Uses the EXACT vector sum: r_Moon(t) = r_Earth(t) + r_Moon/Earth(t)
+    // Guaranteed to match the Moon's 3D dynamic mesh position at every point in time
     if (composedMoonSunLineRef.current) {
       const composedMoonPts: THREE.Vector3[] = [];
-      const totalYearSteps = 1200;
-      const moonToEarthRatio = EARTH.orbitalPeriod / MOON.orbitalPeriod; // ~13.368
-      const waveAmp = Math.min(scales.waveAmplitude, emDistScale * 0.85);
+      const totalYearSteps = 1600;
+      const moonToEarthRatio = EARTH.orbitalPeriod / MOON.orbitalPeriod; // ~13.3682
 
       for (let i = 0; i <= totalYearSteps; i++) {
         const thetaE = (i / totalYearSteps) * Math.PI * 2;
         const thetaM = thetaE * moonToEarthRatio;
-        const rCur = sunDist + waveAmp * Math.cos(thetaM);
-        const x = Math.cos(thetaE) * rCur;
-        const z = Math.sin(thetaE) * rCur;
-        const y = Math.sin(thetaM) * (emDistScale * 0.1);
-        composedMoonPts.push(new THREE.Vector3(x, y, z));
+
+        const earthX = Math.cos(thetaE) * sunDist;
+        const earthZ = Math.sin(thetaE) * sunDist;
+
+        const relMoonX = Math.cos(thetaM) * emDistScale;
+        const relMoonZ = Math.sin(thetaM) * emDistScale;
+        const relMoonY = Math.sin(thetaM) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
+
+        composedMoonPts.push(
+          new THREE.Vector3(
+            earthX + relMoonX,
+            relMoonY,
+            earthZ + relMoonZ
+          )
+        );
       }
       composedMoonSunLineRef.current.geometry.setFromPoints(composedMoonPts);
       composedMoonSunLineRef.current.scale.setScalar(1);
