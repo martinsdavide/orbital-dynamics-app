@@ -392,10 +392,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     }
     const composedMoonGeo = new THREE.BufferGeometry().setFromPoints(composedMoonPts);
     const composedMoonMat = new THREE.LineBasicMaterial({
-      color: 0xf43f5e, // Hot Rose / Magenta
+      vertexColors: true,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.95,
       linewidth: 2,
+      blending: THREE.AdditiveBlending,
     });
     const composedMoonSunLine = new THREE.Line(composedMoonGeo, composedMoonMat);
     scene.add(composedMoonSunLine);
@@ -691,34 +692,69 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       earthOrbitLineRef.current.scale.setScalar(1);
     }
 
-    // Rebuild Composed Lunar Epicycloid Orbit around Sun
-    // Uses the EXACT vector sum: r_Moon(t) = r_Earth(t) + r_Moon/Earth(t)
-    // Guaranteed to match the Moon's 3D dynamic mesh position at every point in time
+    // Dynamic Rolling 1-Year Lunar Epicycloid Orbit Trail
+    // Trails exactly up to 1 Earth orbital revolution (365.25 days).
+    // As soon as 1 revolution completes, older trail points gradually fade and dissolve,
+    // seamlessly replaced by the new forming orbital cycle.
     if (composedMoonSunLineRef.current) {
       const composedMoonPts: THREE.Vector3[] = [];
-      const totalYearSteps = 1600;
-      const moonToEarthRatio = EARTH.orbitalPeriod / MOON.orbitalPeriod; // ~13.3682
+      const colorArr: number[] = [];
+      const totalSteps = 1200;
 
-      for (let i = 0; i <= totalYearSteps; i++) {
-        const thetaE = (i / totalYearSteps) * Math.PI * 2;
-        const thetaM = thetaE * moonToEarthRatio;
+      const curTime = ephemeris.timeSeconds;
+      const T_year = EARTH.orbitalPeriod;
+      // Active visible trail window: up to 1 full Earth year
+      const trailSpan = Math.min(curTime, T_year);
+      const startTime = Math.max(0, curTime - trailSpan);
 
-        const earthX = Math.cos(thetaE) * sunDist;
-        const earthZ = Math.sin(thetaE) * sunDist;
+      // If at t=0, create an initial preview ring
+      if (trailSpan < 60) {
+        for (let i = 0; i <= totalSteps; i++) {
+          const u = i / totalSteps;
+          const tSample = u * T_year;
+          const thetaE = (tSample / EARTH.orbitalPeriod) * (2 * Math.PI);
+          const thetaM = (tSample / MOON.orbitalPeriod) * (2 * Math.PI);
 
-        const relMoonX = Math.cos(thetaM) * emDistScale;
-        const relMoonZ = Math.sin(thetaM) * emDistScale;
-        const relMoonY = Math.sin(thetaM) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
+          const earthX = Math.cos(thetaE) * sunDist;
+          const earthZ = Math.sin(thetaE) * sunDist;
+          const relMoonX = Math.cos(thetaM) * emDistScale;
+          const relMoonZ = Math.sin(thetaM) * emDistScale;
+          const relMoonY = Math.sin(thetaM) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
 
-        composedMoonPts.push(
-          new THREE.Vector3(
-            earthX + relMoonX,
-            relMoonY,
-            earthZ + relMoonZ
-          )
-        );
+          composedMoonPts.push(new THREE.Vector3(earthX + relMoonX, relMoonY, earthZ + relMoonZ));
+          colorArr.push(0.95 * 0.4, 0.2 * 0.4, 0.6 * 0.4);
+        }
+      } else {
+        for (let i = 0; i <= totalSteps; i++) {
+          const u = i / totalSteps; // 0 = oldest (1 year ago), 1 = current time (Moon position)
+          const tSample = startTime + u * trailSpan;
+
+          const thetaE = (tSample / EARTH.orbitalPeriod) * (2 * Math.PI);
+          const thetaM = (tSample / MOON.orbitalPeriod) * (2 * Math.PI);
+
+          const earthX = Math.cos(thetaE) * sunDist;
+          const earthZ = Math.sin(thetaE) * sunDist;
+
+          const relMoonX = Math.cos(thetaM) * emDistScale;
+          const relMoonZ = Math.sin(thetaM) * emDistScale;
+          const relMoonY = Math.sin(thetaM) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
+
+          composedMoonPts.push(new THREE.Vector3(earthX + relMoonX, relMoonY, earthZ + relMoonZ));
+
+          // Exponential fade towards the tail: older than 1 revolution completely dissolves
+          const intensity = 0.04 + 0.96 * Math.pow(u, 1.6);
+          // Color gradient: deep violet at the tail -> brilliant electric rose at the Moon
+          colorArr.push(
+            0.96 * intensity,
+            (0.12 + 0.15 * u) * intensity,
+            (0.55 + 0.45 * u) * intensity
+          );
+        }
       }
-      composedMoonSunLineRef.current.geometry.setFromPoints(composedMoonPts);
+
+      const geo = composedMoonSunLineRef.current.geometry;
+      geo.setFromPoints(composedMoonPts);
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(colorArr, 3));
       composedMoonSunLineRef.current.scale.setScalar(1);
     }
     const moonAngle = (ephemeris.timeSeconds / MOON.orbitalPeriod) * (2 * Math.PI);
