@@ -5,7 +5,6 @@ import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 import type { EarthMoonTrajectory } from '../../types/trajectory';
 import { SCALING, EARTH, MOON, SUN } from '../../physics/constants.ts';
-import { getMoonEphemeris } from '../../physics/nBodyIntegrator.ts';
 import {
   createEarthTexture,
   createMoonTexture,
@@ -1216,39 +1215,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         padWorldPos.copy(currentEarthWorldPos);
       }
 
-      // Exact Cislunar Visual Mapping:
-      // Maps physical distances onto the 3D scene so that:
-      // 1. Departure starts exactly on the Earth's surface at the chosen Spaceport (radius = scales.earthRadius)
-      // 2. Trajectory arcs above Earth's atmosphere without penetrating the planet
-      // 3. Lunar encounters arrive right at the 3D Moon's surface and orbit (radius = scales.moonRadius)
+      // Continuous Cislunar Space Spline (No piecewise jumps, No Earth penetration)
       const rEarthVisual = scales.earthRadius;
       const rMoonVisual = scales.earthMoonDistance;
 
-      const rawSplinePts: THREE.Vector3[] = activeTrajectory.points.map((pt, idx) => {
-        if (idx === 0) {
-          return padWorldPos.clone();
-        }
-
-        // Distance from Earth in meters
+      const rawSplinePts: THREE.Vector3[] = activeTrajectory.points.map((pt) => {
         const dE = pt.distanceToEarth;
-        const dM = pt.distanceToMoon;
-
-        if (dM < MOON.soiRadius && dM > 0) {
-          // Lunar-centric mapping near the Moon
-          const moonEphem = getMoonEphemeris(pt.t);
-          const relX = pt.position.x - moonEphem.position.x;
-          const relY = pt.position.y - moonEphem.position.y;
-          const relZ = pt.position.z - moonEphem.position.z;
-          const lunarScale = (scales.moonRadius * 2.5) / MOON.radius;
-
-          return new THREE.Vector3(
-            currentMoonWorldPos.x + relX * lunarScale,
-            currentMoonWorldPos.y + relY * lunarScale,
-            currentMoonWorldPos.z + relZ * lunarScale
-          );
-        }
-
-        // Geocentric cislunar mapping
         const u = Math.max(0, (dE - EARTH.radius) / (MOON.semiMajorAxis - EARTH.radius));
         const rScene = rEarthVisual + u * (rMoonVisual - rEarthVisual);
         const pMag = Math.sqrt(pt.position.x * pt.position.x + pt.position.y * pt.position.y + pt.position.z * pt.position.z) || 1;
@@ -1260,9 +1232,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         );
       });
 
-      // Smooth Catmull-Rom spline with centripetal parameterization (zero cusps, zero kinks)
+      // Continuous Catmull-Rom spline with centripetal parameterization
       const curve = new THREE.CatmullRomCurve3(rawSplinePts, false, 'centripetal', 0.5);
-      const ribbonPts = curve.getPoints(350);
+      const ribbonPts = curve.getPoints(400);
 
       if (transferTrajectoryLineRef.current && ribbonPts.length > 0) {
         transferTrajectoryLineRef.current.geometry.setFromPoints(ribbonPts);

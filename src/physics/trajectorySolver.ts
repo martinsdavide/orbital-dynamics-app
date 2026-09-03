@@ -77,7 +77,7 @@ export function calculateLaunchWindows(
 }
 
 /**
- * Solves and numerically propagates an Earth-Moon mission trajectory under 3-body gravity.
+ * Solves and numerically generates a smooth, continuous Earth-Moon mission trajectory.
  */
 export function solveEarthMoonTrajectory(
   type: MissionTrajectoryType,
@@ -120,9 +120,9 @@ export function solveEarthMoonTrajectory(
   const launchWindows = calculateLaunchWindows(spaceport, simTimeHours);
   const activeWindow = launchWindows[selectedWindowIdx] || launchWindows[0];
 
-  // Numerically propagate trajectory
+  // Generate continuous trajectory points
   const { points, measuredPeriluneAltKm, measuredReentryAltKm, measuredLoiDV, measuredArrivalSpeed } =
-    propagateNumericalTrajectory(
+    propagateSeamlessTrajectory(
       type,
       spaceport,
       departureAltitudeMeters,
@@ -161,9 +161,10 @@ export function solveEarthMoonTrajectory(
 }
 
 /**
- * Propagates full 3D Earth-Moon mission trajectory from spaceport to lunar encounter and return.
+ * Propagates a seamless, smooth C2-continuous Earth-Moon mission trajectory.
+ * Anchored directly to spaceport launchpad at T=0 with zero earth intersection.
  */
-function propagateNumericalTrajectory(
+function propagateSeamlessTrajectory(
   type: MissionTrajectoryType,
   spaceport: Spaceport,
   leoAlt: number,
@@ -187,6 +188,10 @@ function propagateNumericalTrajectory(
   const departureEpochSeconds = launchWindow.openTimeHours * 3600;
   const totalMissionSeconds = flightTimeHours * 3600;
 
+  // Spaceport true inertial angle on rotating Earth at T=0
+  const earthRotAtT0 = (departureEpochSeconds / EARTH.rotationPeriod) * (2 * Math.PI);
+  const phi0 = lonRad + earthRotAtT0;
+
   // 1. Ascent Phase (Launchpad -> LEO Parking insertion: 0 to 1 hour)
   const ascentSteps = 24;
   for (let i = 0; i <= ascentSteps; i++) {
@@ -195,7 +200,7 @@ function propagateNumericalTrajectory(
     const tAbs = departureEpochSeconds + tRel;
     const curAlt = p * leoAlt;
     const rCur = rEarth + curAlt;
-    const curAngle = lonRad + p * (Math.PI * 0.35);
+    const curAngle = phi0 + p * (Math.PI * 0.35);
 
     const x = rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - p * 0.7));
     const y = rCur * Math.sin(latRad * (1 - p * 0.7));
@@ -237,7 +242,7 @@ function propagateNumericalTrajectory(
   let measuredArrivalSpeed = 1.2;
 
   // Initial TLI perigee angle
-  const tliAngle = lonRad + Math.PI * 0.35;
+  const tliAngle = phi0 + Math.PI * 0.35;
 
   for (let step = 1; step <= totalSteps; step++) {
     const fraction = step / totalSteps;
