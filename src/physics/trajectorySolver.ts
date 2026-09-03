@@ -465,9 +465,8 @@ function propagateSeamlessTrajectory(
 
     if (type === 'free_return') {
       // Apollo / Artemis II C2-Continuous Figure-8 Free-Return Formulation
-      const incMoonRad = (28.58 * Math.PI) / 180;
-      const cosInc = Math.cos(incMoonRad);
-      const sinInc = Math.sin(incMoonRad);
+      const cosInc = Math.cos(MOON.inclinationToEcliptic);
+      const sinInc = Math.sin(MOON.inclinationToEcliptic);
 
       const rPerilune = MOON.radius + 110000;
       const rSplashdown = rEarth + 50000;
@@ -532,10 +531,9 @@ function propagateSeamlessTrajectory(
       } else if (fraction <= 0.52) {
         // 4. Lunar Far-Side Slingshot Loop (smoothly wraps 180° around Moon far side at 110 km alt)
         const u = (fraction - 0.50) / 0.02; // 0 to 1
-        const curMoonAngle = Math.atan2(-moonEphem.position.z / cosInc, moonEphem.position.x);
         const deltaTheta = leadOffset * (1 - 2 * u); // +leadOffset -> 0 -> -leadOffset
         const rOffset = rMoon + rPerilune * Math.sin(u * Math.PI);
-        const swingAngle = curMoonAngle + deltaTheta;
+        const swingAngle = arrivalMoonAngle + deltaTheta;
 
         pos = {
           x: rOffset * Math.cos(swingAngle),
