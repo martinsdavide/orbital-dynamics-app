@@ -464,110 +464,104 @@ function propagateSeamlessTrajectory(
     let phase = '';
 
     if (type === 'free_return') {
-      // Apollo / Artemis II Profile:
-      // 0 to 8%: Ascent & LEO
-      // 8 to 22%: High Earth Orbit (HEO) Staging Loop
-      // 22 to 50%: Trans-Lunar Injection & Outbound Cislunar Transit
-      // 50 to 52%: Lunar Far-Side Slingshot (Perilune 110 km)
-      // 52 to 95%: Inbound Earth Return Transit
-      // 95 to 100%: Crew Module Sep & Atmospheric Splashdown
+      // Apollo / Artemis II C2-Continuous Figure-8 Free-Return Formulation
+      const incMoonRad = (28.58 * Math.PI) / 180;
+      const cosInc = Math.cos(incMoonRad);
+      const sinInc = Math.sin(incMoonRad);
+
+      const rPerilune = MOON.radius + 110000;
+      const rSplashdown = rEarth + 50000;
+
+      // Lunar encounter angle at arrival (fraction = 0.50)
+      const arrivalEpoch = departureEpochSeconds + 0.50 * totalMissionSeconds;
+      const moonAtArrival = getMoonEphemeris(arrivalEpoch);
+      const arrivalMoonAngle = Math.atan2(-moonAtArrival.position.z / cosInc, moonAtArrival.position.x);
+
+      const leadOffset = rPerilune / rMoon;
+      const tliAngle = arrivalMoonAngle - Math.PI + leadOffset;
+      const heoStartAngle = tliAngle - Math.PI * 2.0;
+      const padAngle = heoStartAngle - Math.PI * 0.4;
 
       if (fraction < 0.08) {
-        // Atmospheric Ascent & LEO insertion
+        // 1. Lift-off & Ascent to LEO
         const u = fraction / 0.08;
         const curAlt = u * leoAlt;
         const rCur = rEarth + curAlt;
-        const curAngle = phi0 + u * (Math.PI * 0.4);
+        const curAngle = padAngle + u * (Math.PI * 0.4);
 
         pos = {
           x: rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
-          y: rCur * Math.sin(latRad * (1 - u * 0.7)),
-          z: -rCur * Math.sin(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
+          y: rCur * sinInc * Math.sin(curAngle),
+          z: -rCur * cosInc * Math.sin(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
         };
         speed = spaceport.equatorialBoostVelocity + u * (7780 - spaceport.equatorialBoostVelocity);
         vel = { x: -speed * Math.sin(curAngle), y: speed * 0.05, z: -speed * Math.cos(curAngle) };
         phase = u === 0 ? 'Lift-off: ' + spaceport.name : 'Atmospheric Ascent to LEO';
 
       } else if (fraction < 0.22) {
-        // High Earth Orbit (HEO) Elliptical Staging Loop around Earth
-        const u = (fraction - 0.08) / 0.14; // 0 to 1
-        const heoAngle = phi0 + Math.PI * 0.4 + u * (Math.PI * 2.1);
+        // 2. High Earth Orbit (HEO) Staging Loop
+        const u = (fraction - 0.08) / 0.14;
+        const curAngle = heoStartAngle + u * (Math.PI * 2.0);
         const rCur = rLEO + (rHEOApogee - rLEO) * Math.sin(u * Math.PI);
 
         pos = {
-          x: rCur * Math.cos(heoAngle),
-          y: rCur * 0.12 * Math.sin(heoAngle),
-          z: -rCur * Math.sin(heoAngle),
+          x: rCur * Math.cos(curAngle),
+          y: rCur * sinInc * Math.sin(curAngle),
+          z: -rCur * cosInc * Math.sin(curAngle),
         };
         speed = 7780 - Math.sin(u * Math.PI) * 4500;
-        vel = { x: -speed * Math.sin(heoAngle), y: speed * 0.05, z: -speed * Math.cos(heoAngle) };
-        phase = u < 0.5 ? 'High Earth Orbit (HEO) Staging' : 'Launcher Separation & TLI Attitude Setup';
+        vel = { x: -speed * Math.sin(curAngle), y: speed * 0.05, z: -speed * Math.cos(curAngle) };
+        phase = u < 0.5 ? 'High Earth Orbit (HEO) Staging' : 'Launcher Separation & TLI Setup';
 
-      } else if (fraction < 0.50) {
-        // Trans-Lunar Injection & Outbound Cislunar Transit
-        const u = (fraction - 0.22) / 0.28; // 0 to 1
+      } else if (fraction <= 0.50) {
+        // 3. Trans-Lunar Injection & Outbound Cislunar Transit (sweeps smoothly to Moon leading edge)
+        const u = (fraction - 0.22) / 0.28;
+        const targetAngle = arrivalMoonAngle + leadOffset;
+        const curAngle = tliAngle + u * (targetAngle - tliAngle);
         const rCur = rLEO + (rMoon - rLEO) * Math.sin(u * (Math.PI / 2));
-        const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
-        const tliAngle = phi0 + Math.PI * 2.5;
-        const curAngle = tliAngle + u * (moonAngle + 0.12 - tliAngle);
 
         pos = {
           x: rCur * Math.cos(curAngle),
-          y: (rCur / rMoon) * moonEphem.position.y * 0.8 + (1 - u) * (rLEO * 0.1 * Math.sin(latRad)),
-          z: -rCur * Math.sin(curAngle),
+          y: rCur * sinInc * Math.sin(curAngle),
+          z: -rCur * cosInc * Math.sin(curAngle),
         };
         speed = 10920 - u * (10920 - 1100);
         vel = { x: -speed * Math.sin(curAngle), y: speed * 0.05, z: -speed * Math.cos(curAngle) };
         phase = u < 0.1 ? 'Main Engine TLI Burn' : 'Trans-Lunar Cislunar Coast';
 
       } else if (fraction <= 0.52) {
-        // Lunar Far-Side Slingshot (110 km alt perilune)
+        // 4. Lunar Far-Side Slingshot Loop (smoothly wraps 180° around Moon far side at 110 km alt)
         const u = (fraction - 0.50) / 0.02; // 0 to 1
-        const periluneR = MOON.radius + 110000;
-        const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
-        const swingAngle = moonAngle + Math.PI * (0.55 - u * 1.1);
+        const curMoonAngle = Math.atan2(-moonEphem.position.z / cosInc, moonEphem.position.x);
+        const deltaTheta = leadOffset * (1 - 2 * u); // +leadOffset -> 0 -> -leadOffset
+        const rOffset = rMoon + rPerilune * Math.sin(u * Math.PI);
+        const swingAngle = curMoonAngle + deltaTheta;
 
         pos = {
-          x: moonEphem.position.x + periluneR * Math.cos(swingAngle),
-          y: moonEphem.position.y + periluneR * 0.2 * Math.sin(u * Math.PI),
-          z: moonEphem.position.z - periluneR * Math.sin(swingAngle),
+          x: rOffset * Math.cos(swingAngle),
+          y: rOffset * sinInc * Math.sin(swingAngle) + rPerilune * 0.15 * Math.sin(u * Math.PI),
+          z: -rOffset * cosInc * Math.sin(swingAngle),
         };
         speed = 2450;
         vel = { x: -speed * Math.sin(swingAngle), y: speed * 0.1 * Math.cos(u * Math.PI), z: -speed * Math.cos(swingAngle) };
         phase = 'Lunar Far-Side Gravity Assist Slingshot (Moon Kick)';
 
-      } else if (fraction < 0.95) {
-        // Inbound Return to Earth
-        const u = (fraction - 0.52) / 0.43; // 0 to 1
-        const rReturnPerigee = rEarth + 50000;
-        const rCur = rMoon - (rMoon - rReturnPerigee) * Math.sin(u * (Math.PI / 2));
-        const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
-        const returnAngle = moonAngle - Math.PI * 0.85 * u;
+      } else {
+        // 5. Inbound Earth Return (smoothly sweeps from Moon trailing edge across cislunar space to splashdown)
+        const u = (fraction - 0.52) / 0.48; // 0 to 1
+        const exitAngle = arrivalMoonAngle - leadOffset;
+        const splashdownAngle = exitAngle + Math.PI;
+        const curAngle = exitAngle + u * (splashdownAngle - exitAngle);
+        const rCur = rMoon - (rMoon - rSplashdown) * Math.sin(u * (Math.PI / 2));
 
         pos = {
-          x: rCur * Math.cos(returnAngle),
-          y: (rCur / rMoon) * moonEphem.position.y * (1 - u),
-          z: -rCur * Math.sin(returnAngle),
+          x: rCur * Math.cos(curAngle),
+          y: rCur * sinInc * Math.sin(curAngle) * (1 - u),
+          z: -rCur * cosInc * Math.sin(curAngle),
         };
         speed = 1100 + u * (11050 - 1100);
-        vel = { x: -speed * Math.sin(returnAngle), y: -speed * 0.05, z: -speed * Math.cos(returnAngle) };
-        phase = 'Return to Earth Ballistic Coast';
-
-      } else {
-        // Crew Module Separation & Oceanic Splashdown
-        const u = (fraction - 0.95) / 0.05; // 0 to 1
-        const rCur = rEarth + 50000 * (1 - u);
-        const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
-        const entryAngle = moonAngle - Math.PI * 0.85 - u * 0.15;
-
-        pos = {
-          x: rCur * Math.cos(entryAngle),
-          y: rCur * 0.05 * (1 - u),
-          z: -rCur * Math.sin(entryAngle),
-        };
-        speed = 11050 - u * 11000;
-        vel = { x: -speed * Math.sin(entryAngle), y: 0, z: -speed * Math.cos(entryAngle) };
-        phase = u < 0.5 ? 'Crew Module Separates from Service Module' : 'Splashdown: Ocean Recovery';
+        vel = { x: -speed * Math.sin(curAngle), y: -speed * 0.05, z: -speed * Math.cos(curAngle) };
+        phase = u < 0.90 ? 'Return to Earth Ballistic Coast' : u < 0.98 ? 'Crew Module Separation' : 'Splashdown: Ocean Recovery';
       }
 
     } else if (type === 'direct_loi') {
