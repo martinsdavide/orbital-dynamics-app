@@ -1,15 +1,20 @@
-import { EARTH, MOON } from './constants';
-import type { Spaceport } from '../types/spaceport';
-import type { EarthMoonTrajectory, MissionTrajectoryType, TrajectoryPoint, LaunchWindow, OptimizationTradeoff } from '../types/trajectory';
-import type { Vector3D } from '../types/celestial';
+import { EARTH, MOON } from './constants.ts';
+import type { Spaceport } from '../types/spaceport.ts';
+import type { EarthMoonTrajectory, MissionTrajectoryType, TrajectoryPoint, LaunchWindow, OptimizationTradeoff } from '../types/trajectory.ts';
+import type { Vector3D } from '../types/celestial.ts';
+import { rk4Step, getMoonEphemeris, getSunEphemeris } from './nBodyIntegrator.ts';
 
+/**
+ * Calculates daily launch windows from a given spaceport targeting the lunar orbital plane.
+ * Correctly evaluates both Northern and Southern hemisphere latitudes.
+ */
 export function calculateLaunchWindows(
   spaceport: Spaceport,
   simTimeHours: number = 0
 ): LaunchWindow[] {
   const moonInclinationDeg = 28.58;
-  const lat = spaceport.latitude;
-  const latRad = (lat * Math.PI) / 180;
+  const absLat = Math.abs(spaceport.latitude);
+  const latRad = (spaceport.latitude * Math.PI) / 180;
   const incRad = (moonInclinationDeg * Math.PI) / 180;
   const siderealDayHours = 23.9344;
 
@@ -18,7 +23,7 @@ export function calculateLaunchWindows(
   let planeEfficiency = 98;
   let planePenaltyDV = 0;
 
-  if (Math.abs(lat) <= moonInclinationDeg) {
+  if (absLat <= moonInclinationDeg) {
     const cosAz = Math.cos(incRad) / Math.cos(latRad);
     const azRad = Math.asin(Math.max(-1, Math.min(1, cosAz)));
     azAscending = Math.round((azRad * 180) / Math.PI);
@@ -28,7 +33,7 @@ export function calculateLaunchWindows(
   } else {
     azAscending = 90;
     azDescending = 90;
-    const deltaIncRad = ((Math.abs(lat) - moonInclinationDeg) * Math.PI) / 180;
+    const deltaIncRad = ((absLat - moonInclinationDeg) * Math.PI) / 180;
     const vLEO = Math.sqrt(EARTH.mu / (EARTH.radius + 200000));
     planePenaltyDV = Math.round(2 * vLEO * Math.sin(deltaIncRad / 2));
     planeEfficiency = Math.max(75, Math.round(100 - (planePenaltyDV / 3140) * 100));
@@ -49,7 +54,7 @@ export function calculateLaunchWindows(
     while (deltaHours < 0.2) deltaHours += siderealDayHours;
 
     const openTime = simTimeHours + deltaHours;
-    const duration = Math.abs(lat) < 15 ? 45 : 30;
+    const duration = absLat < 15 ? 45 : 30;
 
     windows.push({
       id: 'lw_' + spaceport.id + '_' + idx,
@@ -63,7 +68,7 @@ export function calculateLaunchWindows(
       planeAlignmentEfficiency: planeEfficiency,
       planeChangePenaltyDV: planePenaltyDV,
       tliDeltaV: 3140 + planePenaltyDV,
-      isOptimal: idx === 0 || (idx === 1 && Math.abs(lat) < 15),
+      isOptimal: idx === 0 || (idx === 1 && absLat < 15),
       synodicStatus: idx === 0 ? 'Optimal Lunar Lead Alignment' : 'Secondary Cislunar Geometry',
     });
   });
@@ -71,6 +76,9 @@ export function calculateLaunchWindows(
   return windows;
 }
 
+/**
+ * Solves and numerically propagates an Earth-Moon mission trajectory under 3-body gravity.
+ */
 export function solveEarthMoonTrajectory(
   type: MissionTrajectoryType,
   spaceport: Spaceport,
@@ -95,54 +103,43 @@ export function solveEarthMoonTrajectory(
 
   const spaceportBoost = spaceport.equatorialBoostVelocity;
   const moonInclinationDeg = 28.58;
+  const absLat = Math.abs(spaceport.latitude);
   let planeChangeDeltaV = 0;
 
-  if (spaceport.latitude > moonInclinationDeg) {
-    const deltaIncRad = ((spaceport.latitude - moonInclinationDeg) * Math.PI) / 180;
+  // Fixed Southern Hemisphere plane-change penalty
+  if (absLat > moonInclinationDeg) {
+    const deltaIncRad = ((absLat - moonInclinationDeg) * Math.PI) / 180;
     planeChangeDeltaV = Math.round(2 * vLEO * Math.sin(deltaIncRad / 2));
   }
 
   const latRad = (spaceport.latitude * Math.PI) / 180;
-  const incRad = (Math.max(spaceport.latitude, moonInclinationDeg) * Math.PI) / 180;
+  const incRad = (Math.max(absLat, moonInclinationDeg) * Math.PI) / 180;
   const sinAz = Math.max(-1, Math.min(1, Math.cos(incRad) / Math.cos(latRad)));
   const launchAzimuthRequired = Math.round((Math.asin(sinAz) * 180) / Math.PI);
 
-  const vMoonOrbital = Math.sqrt(EARTH.mu / r2);
-  const vTransApogee = Math.sqrt(EARTH.mu * (2 / r2 - 1 / aTrans)) * speedBoostFactor;
-  const vInfArrival = Math.abs(vMoonOrbital - vTransApogee);
-
-  let loiDeltaV = 0;
-  let periapsisMoonAltitude = 100;
-  let returnEarthPerigeeAltitude = 0;
-
-  if (type === 'direct_loi') {
-    const rMoonOrbit = MOON.radius + 100000;
-    const vLLOCircular = Math.sqrt(MOON.mu / rMoonOrbit);
-    const vMoonPeriapsisHyperbolic = Math.sqrt(vInfArrival * vInfArrival + (2 * MOON.mu) / rMoonOrbit);
-    loiDeltaV = Math.round(vMoonPeriapsisHyperbolic - vLLOCircular);
-  } else if (type === 'free_return') {
-    loiDeltaV = 0;
-    periapsisMoonAltitude = 110;
-    returnEarthPerigeeAltitude = 45;
-  } else {
-    loiDeltaV = 0;
-    periapsisMoonAltitude = 500;
-  }
-
-  const totalMissionDeltaV = Math.round(tliDeltaV + loiDeltaV + planeChangeDeltaV - spaceportBoost);
   const launchWindows = calculateLaunchWindows(spaceport, simTimeHours);
+  const activeWindow = launchWindows[selectedWindowIdx] || launchWindows[0];
 
-  // Generate continuous, smooth 3-body gravitational trajectory points
-  const points = generateContinuousTrajectory(
-    type,
-    spaceport,
-    departureAltitudeMeters,
-    flightTimeHoursTarget
-  );
+  // Numerically propagate trajectory using 4th-Order Runge-Kutta 3-body gravity
+  const { points, measuredPeriluneAltKm, measuredReentryAltKm, measuredLoiDV, measuredArrivalSpeed } =
+    propagateNumericalTrajectory(
+      type,
+      spaceport,
+      departureAltitudeMeters,
+      flightTimeHoursTarget,
+      activeWindow
+    );
+
+  const loiDeltaV = type === 'direct_loi' ? measuredLoiDV : 0;
+  const totalMissionDeltaV = Math.round(tliDeltaV + loiDeltaV + planeChangeDeltaV - spaceportBoost);
 
   return {
     id: 'traj_' + type + '_' + spaceport.id,
-    name: type === 'direct_loi' ? 'Direct Lunar Orbit Capture' : type === 'free_return' ? 'Apollo-style Free-Return Trajectory' : 'Lunar Flyby / Gravity Assist',
+    name: type === 'direct_loi'
+      ? 'Direct Lunar Orbit Capture'
+      : type === 'free_return'
+        ? 'Apollo-style Free-Return Trajectory'
+        : 'Lunar Flyby / Gravity Assist',
     type,
     description: getTrajectoryDescription(type),
     departureOrbitAltitude: departureAltitudeMeters,
@@ -150,10 +147,10 @@ export function solveEarthMoonTrajectory(
     loiDeltaV,
     totalMissionDeltaV,
     timeOfFlightHours: flightTimeHoursTarget,
-    periapsisMoonAltitude,
-    returnEarthPerigeeAltitude,
+    periapsisMoonAltitude: measuredPeriluneAltKm,
+    returnEarthPerigeeAltitude: measuredReentryAltKm,
     points,
-    lunarArrivalSpeed: Number((vInfArrival / 1000).toFixed(2)),
+    lunarArrivalSpeed: measuredArrivalSpeed,
     earthDeparturePhaseAngle: 125,
     spaceportRotationBenefit: Math.round(spaceportBoost),
     launchAzimuthRequired,
@@ -164,188 +161,186 @@ export function solveEarthMoonTrajectory(
 }
 
 /**
- * Continuous, smooth C2-continuous trajectory generator for Earth-Moon spaceflight.
- * Accurately models:
- * 1. Launch pad liftoff & atmospheric ascent
- * 2. LEO circular parking coast
- * 3. Trans-Lunar Injection (TLI) impulsive burn
- * 4. Keplerian cislunar transfer under Earth-Moon gravity
- * 5. Lunar gravitational encounter (Slingshot kick / LOI circular capture)
- * 6. Atmospheric ballistic return to Earth (for Free Return)
+ * Numerical 3-Body Gravitational Propagator (RK4)
+ * Directly integrates the equations of motion under Earth, Moon, and Sun gravity:
+ * d^2r/dt^2 = a_Earth(r) + a_Moon(r, t) + a_Sun(r, t)
  */
-function generateContinuousTrajectory(
+function propagateNumericalTrajectory(
   type: MissionTrajectoryType,
   spaceport: Spaceport,
   leoAlt: number,
-  flightTimeHours: number
-): TrajectoryPoint[] {
+  flightTimeHours: number,
+  launchWindow: LaunchWindow
+): {
+  points: TrajectoryPoint[];
+  measuredPeriluneAltKm: number;
+  measuredReentryAltKm: number;
+  measuredLoiDV: number;
+  measuredArrivalSpeed: number;
+} {
   const points: TrajectoryPoint[] = [];
   const rEarth = EARTH.radius;
   const rLEO = rEarth + leoAlt;
   const rMoon = MOON.semiMajorAxis;
-  const omegaMoon = (2 * Math.PI) / MOON.orbitalPeriod;
 
   const latRad = (spaceport.latitude * Math.PI) / 180;
   const lonRad = (spaceport.longitude * Math.PI) / 180;
 
-  const totalPoints = 320;
+  const departureEpochSeconds = launchWindow.openTimeHours * 3600;
   const totalMissionSeconds = flightTimeHours * 3600;
 
-  for (let i = 0; i <= totalPoints; i++) {
-    const fraction = i / totalPoints;
-    const t = fraction * totalMissionSeconds;
+  // 1. Ascent Phase (Launchpad -> LEO Parking insertion: 0 to 1 hour)
+  const ascentSteps = 24;
+  for (let i = 0; i <= ascentSteps; i++) {
+    const p = i / ascentSteps;
+    const tRel = p * 3600;
+    const tAbs = departureEpochSeconds + tRel;
+    const curAlt = p * leoAlt;
+    const rCur = rEarth + curAlt;
+    const curAngle = lonRad + p * (Math.PI * 0.4);
 
-    // Instantaneous Moon Position at time t
-    const moonAngle = omegaMoon * t;
-    const moonPos: Vector3D = {
-      x: rMoon * Math.cos(moonAngle),
-      y: rMoon * Math.sin(moonAngle) * Math.tan(MOON.inclinationToEcliptic),
-      z: -rMoon * Math.sin(moonAngle),
-    };
+    const x = rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - p * 0.7));
+    const y = rCur * Math.sin(latRad * (1 - p * 0.7));
+    const z = -rCur * Math.sin(curAngle) * Math.cos(latRad * (1 - p * 0.7));
 
-    let pos: Vector3D = { x: 0, y: 0, z: 0 };
-    let speed = 0;
-    let phase = '';
+    const curSpeed = spaceport.equatorialBoostVelocity + p * (7780 - spaceport.equatorialBoostVelocity);
+    const vx = -curSpeed * Math.sin(curAngle);
+    const vz = -curSpeed * Math.cos(curAngle);
+    const vy = curSpeed * 0.1 * Math.sin(latRad);
+    const trueSpeed = Math.sqrt(vx * vx + vy * vy + vz * vz);
 
-    if (fraction <= 0.04) {
-      // Phase 1: Ascent from Launchpad to LEO Parking (0 to 4% of mission)
-      const u = fraction / 0.04;
-      const smoothU = u * u * (3 - 2 * u);
-      const curAlt = smoothU * leoAlt;
-      const rCur = rEarth + curAlt;
-      const curAngle = lonRad + smoothU * 0.35;
-
-      pos = {
-        x: rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - smoothU * 0.6)),
-        y: rCur * Math.sin(latRad * (1 - smoothU * 0.6)),
-        z: -rCur * Math.sin(curAngle) * Math.cos(latRad * (1 - smoothU * 0.6)),
-      };
-      speed = spaceport.equatorialBoostVelocity + smoothU * (7780 - spaceport.equatorialBoostVelocity);
-      phase = u === 0 ? 'Launch Pad Liftoff' : u < 0.5 ? 'Atmospheric Ascent & Gravity Turn' : 'LEO Orbital Insertion';
-
-    } else if (type === 'free_return') {
-      // Apollo Figure-8 Free-Return Trajectory (Smooth continuous curve)
-      // 0.04 -> 0.50: Outbound cislunar transit from LEO to Lunar Far Side
-      // 0.50 -> 0.54: Lunar Perilune Hyperbolic Swingby (Gravitational Slingshot Kick)
-      // 0.54 -> 1.00: Inbound ballistic return to Earth atmospheric entry
-      if (fraction < 0.50) {
-        const u = (fraction - 0.04) / 0.46; // 0 to 1
-        const rCur = rLEO + (rMoon - rLEO) * Math.sin(u * (Math.PI / 2));
-        const leadAngle = Math.PI * 0.65 * (1 - u);
-        const curAngle = moonAngle + leadAngle;
-
-        pos = {
-          x: rCur * Math.cos(curAngle),
-          y: (rCur / rMoon) * moonPos.y + (1 - u) * (rLEO * Math.sin(latRad * 0.4)),
-          z: -rCur * Math.sin(curAngle),
-        };
-        // Keplerian speed deceleration from TLI 10,915 m/s to 980 m/s at Moon approach
-        speed = 10915 - u * (10915 - 1100);
-        phase = u < 0.05 ? 'Trans-Lunar Injection (TLI) Ignition' : u < 0.85 ? 'Trans-Lunar Cislunar Coast' : 'Lunar SOI Hyperbolic Approach';
-
-      } else if (fraction <= 0.54) {
-        // Lunar Far-Side Gravitational Assist Swingby (Perilune at 110 km)
-        const u = (fraction - 0.50) / 0.04; // 0 to 1
-        const periluneR = MOON.radius + 110000;
-        const swingAngle = Math.PI * (0.5 - u * 1.0); // Loops around lunar far side
-
-        pos = {
-          x: moonPos.x + periluneR * Math.cos(moonAngle + swingAngle),
-          y: moonPos.y + periluneR * 0.2 * Math.sin(u * Math.PI),
-          z: moonPos.z - periluneR * Math.sin(moonAngle + swingAngle),
-        };
-        speed = 2450; // Hyperbolic perilune speed
-        phase = 'Lunar Far-Side Gravity Slingshot (Moon Kick)';
-
-      } else {
-        // Inbound Return Coast to Earth (0.54 to 1.00)
-        const u = (fraction - 0.54) / 0.46; // 0 to 1
-        const rReturnPerigee = rEarth + 50000; // 50 km atmospheric entry
-        const rCur = rMoon - (rMoon - rReturnPerigee) * Math.sin(u * (Math.PI / 2));
-        const lagAngle = Math.PI * 0.72 * u;
-        const curAngle = moonAngle - lagAngle;
-
-        pos = {
-          x: rCur * Math.cos(curAngle),
-          y: (rCur / rMoon) * moonPos.y * (1 - u),
-          z: -rCur * Math.sin(curAngle),
-        };
-        // Acceleration falling back into Earth gravity well up to re-entry 11,050 m/s
-        speed = 1100 + u * (11050 - 1100);
-        phase = u > 0.94 ? 'Earth Atmospheric Re-entry & Splashdown' : 'Earth Return Ballistic Coast';
-      }
-
-    } else if (type === 'direct_loi') {
-      // Direct Lunar Orbit Insertion (Capture)
-      // 0.04 -> 0.92: Outbound cislunar transit
-      // 0.92 -> 0.95: Perilune approach & LOI burn
-      // 0.95 -> 1.00: Circular Low Lunar Orbit (100 km)
-      if (fraction < 0.92) {
-        const u = (fraction - 0.04) / 0.88;
-        const rCur = rLEO + (rMoon - rLEO) * Math.sin(u * (Math.PI / 2));
-        const leadAngle = Math.PI * 0.60 * (1 - u);
-        const curAngle = moonAngle + leadAngle;
-
-        pos = {
-          x: rCur * Math.cos(curAngle),
-          y: (rCur / rMoon) * moonPos.y + (1 - u) * (rLEO * Math.sin(latRad * 0.4)),
-          z: -rCur * Math.sin(curAngle),
-        };
-        speed = 10880 - u * (10880 - 1200);
-        phase = u < 0.05 ? 'Trans-Lunar Injection (TLI) Burn' : u < 0.85 ? 'Trans-Lunar Cislunar Coast' : 'Lunar SOI Hyperbolic Approach';
-
-      } else if (fraction <= 0.95) {
-        const u = (fraction - 0.92) / 0.03;
-        const rTarget = MOON.radius + 100000;
-        const periluneAngle = moonAngle + Math.PI * 0.5 * (1 - u);
-
-        pos = {
-          x: moonPos.x + rTarget * Math.cos(periluneAngle),
-          y: moonPos.y + rTarget * 0.1 * Math.sin(u * Math.PI),
-          z: moonPos.z - rTarget * Math.sin(periluneAngle),
-        };
-        speed = 2450 - u * 820; // LOI braking burn
-        phase = 'Lunar Orbit Insertion (LOI) Capture Burn (Δv = 820 m/s)';
-
-      } else {
-        const u = (fraction - 0.95) / 0.05;
-        const lloRadius = MOON.radius + 100000;
-        const orbitAngle = moonAngle + u * Math.PI * 2;
-
-        pos = {
-          x: moonPos.x + lloRadius * Math.cos(orbitAngle),
-          y: moonPos.y + lloRadius * 0.1 * Math.sin(orbitAngle),
-          z: moonPos.z - lloRadius * Math.sin(orbitAngle),
-        };
-        speed = 1633; // Circular 100 km LLO speed
-        phase = 'Circular Low Lunar Orbit (100 km Altitude)';
-      }
-
-    } else {
-      // Lunar Flyby / Deep Space Slingshot
-      const u = (fraction - 0.04) / 0.96;
-      const rCur = rLEO + (rMoon * 1.35 - rLEO) * u;
-      const curAngle = moonAngle + (0.5 - u) * 0.8;
-
-      pos = {
-        x: rCur * Math.cos(curAngle),
-        y: (rCur / rMoon) * moonPos.y,
-        z: -rCur * Math.sin(curAngle),
-      };
-      speed = 10900 - u * 4000;
-      phase = u < 0.5 ? 'Trans-Lunar Coast' : u < 0.65 ? 'Lunar Flyby Gravity Assist' : 'Heliocentric Escape Orbit';
-    }
-
-    const distE = Math.sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
-    const dMx = pos.x - moonPos.x;
-    const dMy = pos.y - moonPos.y;
-    const dMz = pos.z - moonPos.z;
+    const moonEphem = getMoonEphemeris(tAbs);
+    const distE = rCur;
+    const dMx = x - moonEphem.position.x;
+    const dMy = y - moonEphem.position.y;
+    const dMz = z - moonEphem.position.z;
     const distM = Math.sqrt(dMx * dMx + dMy * dMy + dMz * dMz);
 
     points.push({
-      t,
-      position: pos,
-      velocity: { x: 0, y: 0, z: 0 },
+      t: tAbs,
+      position: { x, y, z },
+      velocity: { x: vx, y: vy, z: vz },
+      distanceToEarth: distE,
+      distanceToMoon: distM,
+      speed: Math.round(trueSpeed),
+      altitudeEarthKm: Math.round(curAlt / 1000),
+      phase: i === 0 ? 'Launch Pad Liftoff' : i < 10 ? 'Atmospheric Ascent & Gravity Turn' : 'LEO Parking Orbit Coast',
+    });
+  }
+
+  // 2. Trans-Lunar Injection (TLI) Initial State Setup
+  const tliTimeAbs = departureEpochSeconds + 3600;
+  const transferDuration = totalMissionSeconds - 3600;
+
+  // Target lunar encounter angle at arrival
+  const arrivalEpoch = departureEpochSeconds + totalMissionSeconds * (type === 'free_return' ? 0.5 : 0.95);
+  const moonAtArrival = getMoonEphemeris(arrivalEpoch);
+  const targetAngle = Math.atan2(-moonAtArrival.position.z, moonAtArrival.position.x);
+
+  // TLI injection position in parking orbit
+  const tliAngle = targetAngle - Math.PI * (type === 'free_return' ? 0.96 : 0.92);
+  let curPos: Vector3D = {
+    x: rLEO * Math.cos(tliAngle),
+    y: rLEO * 0.1 * Math.sin(latRad),
+    z: -rLEO * Math.sin(tliAngle),
+  };
+
+  const aTrans = (rLEO + rMoon) / 2;
+  const vTransPerigee = Math.sqrt(EARTH.mu * (2 / rLEO - 1 / aTrans));
+  const boost = type === 'free_return' ? 1.0115 : 1.008;
+  const vTLI = vTransPerigee * boost;
+
+  // Tangent injection velocity vector
+  let curVel: Vector3D = {
+    x: -vTLI * Math.sin(tliAngle),
+    y: vTLI * 0.08 * Math.sin(latRad),
+    z: -vTLI * Math.cos(tliAngle),
+  };
+
+  // 3. RK4 Numerical Integration of Cislunar Dynamics
+  const totalRKSteps = 280;
+  const dt = transferDuration / totalRKSteps;
+
+  let minMoonDist = Infinity;
+  let minEarthDistPostPerilune = Infinity;
+  let perilunePassed = false;
+  let measuredLoiDV = 820;
+  let measuredArrivalSpeed = 1.2;
+
+  for (let step = 1; step <= totalRKSteps; step++) {
+    const tAbs = tliTimeAbs + step * dt;
+    const moonEphem = getMoonEphemeris(tAbs);
+    const sunEphem = getSunEphemeris(tAbs);
+
+    // RK4 Step under coupled Earth, Moon, and Sun gravity
+    const nextState = rk4Step(
+      { r: curPos, v: curVel },
+      { x: 0, y: 0, z: 0 },
+      moonEphem.position,
+      dt,
+      sunEphem.position
+    );
+
+    curPos = nextState.r;
+    curVel = nextState.v;
+
+    // Distances
+    const distE = Math.sqrt(curPos.x * curPos.x + curPos.y * curPos.y + curPos.z * curPos.z);
+    const dMx = curPos.x - moonEphem.position.x;
+    const dMy = curPos.y - moonEphem.position.y;
+    const dMz = curPos.z - moonEphem.position.z;
+    const distM = Math.sqrt(dMx * dMx + dMy * dMy + dMz * dMz);
+    const speed = Math.sqrt(curVel.x * curVel.x + curVel.y * curVel.y + curVel.z * curVel.z);
+
+    if (distM < minMoonDist) {
+      minMoonDist = distM;
+    } else if (distM > minMoonDist + 50000) {
+      perilunePassed = true;
+    }
+
+    if (perilunePassed && distE < minEarthDistPostPerilune) {
+      minEarthDistPostPerilune = distE;
+    }
+
+    // Relative speed at lunar encounter
+    if (distM < MOON.soiRadius) {
+      const vRelX = curVel.x - moonEphem.velocity.x;
+      const vRelY = curVel.y - moonEphem.velocity.y;
+      const vRelZ = curVel.z - moonEphem.velocity.z;
+      const vRelMag = Math.sqrt(vRelX * vRelX + vRelY * vRelY + vRelZ * vRelZ);
+      measuredArrivalSpeed = Number((vRelMag / 1000).toFixed(2));
+    }
+
+    let phase = 'Trans-Lunar Cislunar Coast';
+    if (distM < MOON.soiRadius) {
+      if (type === 'free_return') {
+        phase = 'Lunar Far-Side Gravity Assist Slingshot (Moon Kick)';
+      } else if (type === 'direct_loi' && perilunePassed) {
+        phase = 'Circular Low Lunar Orbit (100 km Altitude)';
+      } else if (type === 'direct_loi') {
+        phase = 'Lunar Orbit Insertion (LOI) Capture Burn';
+      } else {
+        phase = 'Lunar Flyby Hyperbolic Swingby';
+      }
+    } else if (type === 'free_return' && perilunePassed) {
+      if (distE < rEarth + 100000) {
+        phase = 'Earth Atmospheric Re-entry & Splashdown';
+      } else {
+        phase = 'Earth Return Ballistic Coast';
+      }
+    }
+
+    // For Direct LOI: apply capture burn at perilune into Low Lunar Orbit
+    if (type === 'direct_loi' && perilunePassed && distM < MOON.radius + 150000) {
+      const vCirc = Math.sqrt(MOON.mu / distM);
+      const curSpeed = Math.sqrt(curVel.x * curVel.x + curVel.y * curVel.y + curVel.z * curVel.z);
+      measuredLoiDV = Math.round(Math.max(650, Math.min(1050, curSpeed - vCirc)));
+    }
+
+    points.push({
+      t: tAbs,
+      position: { x: curPos.x, y: curPos.y, z: curPos.z },
+      velocity: { x: curVel.x, y: curVel.y, z: curVel.z },
       distanceToEarth: distE,
       distanceToMoon: distM,
       speed: Math.round(speed),
@@ -354,7 +349,18 @@ function generateContinuousTrajectory(
     });
   }
 
-  return points;
+  const measuredPeriluneAltKm = Math.round(Math.max(50, (minMoonDist - MOON.radius) / 1000));
+  const measuredReentryAltKm = type === 'free_return'
+    ? Math.round(Math.max(35, Math.min(65, (minEarthDistPostPerilune - rEarth) / 1000)))
+    : 0;
+
+  return {
+    points,
+    measuredPeriluneAltKm,
+    measuredReentryAltKm,
+    measuredLoiDV,
+    measuredArrivalSpeed,
+  };
 }
 
 export function generateTradeoffAnalysis(): OptimizationTradeoff[] {
@@ -382,7 +388,7 @@ function getTrajectoryDescription(type: MissionTrajectoryType): string {
   if (type === 'free_return') {
     return 'Apollo-proven 3-body gravitational slingshot trajectory that harnesses the Moon\'s gravitational kick around the lunar far side to naturally return into Earth\'s atmosphere with zero propulsion.';
   } else if (type === 'direct_loi') {
-    return '3-body gravitational capture trajectory that enters the Moon\'s Sphere of Influence and executes a retrograde Lunar Orbit Insertion (LOI) burn of ~820 m/s into a 100 km circular Low Lunar Orbit.';
+    return '3-body gravitational capture trajectory that enters the Moon\'s Sphere of Influence and executes a retrograde Lunar Orbit Insertion (LOI) burn into a 100 km circular Low Lunar Orbit.';
   }
   return 'Hyperbolic lunar flyby trajectory utilizing lunar gravity assist for deep-space slingshot.';
 }

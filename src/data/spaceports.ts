@@ -1,5 +1,5 @@
-import type { Spaceport } from '../types/spaceport';
-import { EARTH } from '../physics/constants';
+import type { Spaceport } from '../types/spaceport.ts';
+import { EARTH } from '../physics/constants.ts';
 
 function getRotationalBoost(latDeg: number): number {
   const latRad = (latDeg * Math.PI) / 180;
