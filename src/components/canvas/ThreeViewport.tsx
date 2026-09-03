@@ -1215,11 +1215,22 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         padWorldPos.copy(currentEarthWorldPos);
       }
 
-      // Continuous Cislunar Space Spline (No piecewise jumps, No Earth penetration)
+      // High-Fidelity Cislunar Space Spline
+      // In True 1:1 Scale Mode: Pure linear Cartesian mapping preserves 100% physical geometry without distortion
+      const isTrueScale = scaleMode === 'true';
+      const trueScaleFactor = scales.earthRadius / EARTH.radius;
       const rEarthVisual = scales.earthRadius;
       const rMoonVisual = scales.earthMoonDistance;
 
       const rawSplinePts: THREE.Vector3[] = activeTrajectory.points.map((pt) => {
+        if (isTrueScale) {
+          return new THREE.Vector3(
+            currentEarthWorldPos.x + pt.position.x * trueScaleFactor,
+            currentEarthWorldPos.y + pt.position.y * trueScaleFactor,
+            currentEarthWorldPos.z + pt.position.z * trueScaleFactor
+          );
+        }
+
         const dE = pt.distanceToEarth;
         const u = Math.max(0, (dE - EARTH.radius) / (MOON.semiMajorAxis - EARTH.radius));
         const rScene = rEarthVisual + u * (rMoonVisual - rEarthVisual);

@@ -152,9 +152,11 @@ export function App() {
       setCameraPreset('free');
     } else if (mode === 'launch') {
       setReferenceFrame('geocentric');
+      setScaleMode('true');
       setCameraPreset('spaceport');
     } else if (mode === 'transfer') {
       setReferenceFrame('geocentric');
+      setScaleMode('true');
       setCameraPreset('free');
     }
   };
