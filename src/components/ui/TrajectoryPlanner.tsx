@@ -238,34 +238,71 @@ export const TrajectoryPlanner: React.FC<TrajectoryPlannerProps> = ({
         </div>
       </div>
 
-      {/* Trajectory Mission Scrubber */}
-      <div className="space-y-1.5 pt-2 border-t border-gray-800">
+      {/* Trajectory Mission Scrubber & Synchronized Cislunar Dynamics */}
+      <div className="space-y-2 pt-2 border-t border-gray-800">
         <div className="flex justify-between text-[11px] font-mono text-gray-400">
           <span className="flex items-center space-x-1">
             <Play className="w-3 h-3 text-cyan-400" />
-            <span>Mission Sequence Timeline</span>
+            <span className="font-bold text-gray-300">Synchronized Mission Timeline</span>
           </span>
           <span className="text-cyan-300 font-bold">{Math.round(trajectoryProgress * 100)}%</span>
         </div>
+
+        {/* Milestone Quick Jumps */}
+        <div className="grid grid-cols-4 gap-1 text-[9px] font-mono">
+          <button
+            onClick={() => onChangeProgress(0)}
+            className="py-1 rounded bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-300 text-center"
+          >
+            🚀 Liftoff
+          </button>
+          <button
+            onClick={() => onChangeProgress(0.04)}
+            className="py-1 rounded bg-gray-900 hover:bg-gray-800 border border-gray-800 text-cyan-300 text-center"
+          >
+            🛰️ TLI
+          </button>
+          <button
+            onClick={() => onChangeProgress(activeTrajectory.type === 'free_return' ? 0.52 : 0.95)}
+            className="py-1 rounded bg-gray-900 hover:bg-purple-900/60 border border-purple-800/60 text-purple-300 text-center font-bold"
+          >
+            🌕 Encounter
+          </button>
+          <button
+            onClick={() => onChangeProgress(1.0)}
+            className="py-1 rounded bg-gray-900 hover:bg-gray-800 border border-gray-800 text-emerald-300 text-center"
+          >
+            {activeTrajectory.type === 'free_return' ? '🌍 Splashdown' : '🌕 LLO Orbit'}
+          </button>
+        </div>
+
         <input
           type="range"
           min="0"
           max="1"
-          step="0.005"
+          step="0.002"
           value={trajectoryProgress}
           onChange={(e) => onChangeProgress(Number(e.target.value))}
           className="w-full h-2 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
         />
-        <div className="p-2.5 rounded-xl bg-purple-950/30 border border-purple-800/40 text-[11px] font-mono space-y-1">
-          <div className="flex justify-between text-purple-200 font-bold">
-            <span>Phase:</span>
-            <span>{currentPoint?.phase || 'Cislunar Coast'}</span>
+
+        <div className="p-2.5 rounded-xl bg-purple-950/40 border border-purple-800/50 text-[11px] font-mono space-y-1.5 shadow-inner">
+          <div className="flex justify-between text-purple-200 font-bold border-b border-purple-800/40 pb-1">
+            <span>Mission Phase:</span>
+            <span className="text-cyan-300">{currentPoint?.phase || 'Cislunar Transit'}</span>
           </div>
-          <div className="flex justify-between text-gray-400 text-[10px]">
-            <span>Mission Time: <strong>T+{(currentPoint?.t / 3600).toFixed(1)}h</strong></span>
-            <span>Speed: <strong>{currentPoint?.speed?.toLocaleString()} m/s</strong></span>
-            <span>Alt: <strong>{currentPoint?.altitudeEarthKm?.toLocaleString()} km</strong></span>
+          <div className="grid grid-cols-2 gap-1 text-gray-300 text-[10px]">
+            <div>Mission Clock: <strong className="text-white">T+{(currentPoint ? (currentPoint.t - activeTrajectory.points[0].t) / 3600 : 0).toFixed(1)}h</strong></div>
+            <div>Inertial Speed: <strong className="text-white">{currentPoint?.speed?.toLocaleString()} m/s</strong></div>
+            <div>Dist to Earth: <strong className="text-cyan-300">{Math.round((currentPoint?.distanceToEarth || 0) / 1000).toLocaleString()} km</strong></div>
+            <div>Dist to Moon: <strong className="text-purple-300">{Math.round((currentPoint?.distanceToMoon || 0) / 1000).toLocaleString()} km</strong></div>
           </div>
+
+          {currentPoint && currentPoint.distanceToMoon < 66100000 && (
+            <div className="mt-1 p-1 rounded bg-purple-500/20 border border-purple-500/40 text-[10px] text-purple-200 text-center font-bold animate-pulse">
+              🌕 Lunar Gravity Encounter Active (Inside Laplace SOI)
+            </div>
+          )}
         </div>
       </div>
     </div>

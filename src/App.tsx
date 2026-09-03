@@ -109,9 +109,17 @@ export function App() {
       lastTimestamp = timestamp;
 
       if (isPlaying) {
-        if (appMode === 'system' || appMode === 'transfer') {
+        if (appMode === 'system') {
           const dtSim = realDt * timeWarp * 3600;
           setSimTimeSeconds((prev) => prev + dtSim);
+        } else if (appMode === 'transfer') {
+          const totalMissionSeconds = activeTrajectory.timeOfFlightHours * 3600;
+          // In Lunar Mission mode: warp speed scaled for mission timeline
+          const progressDelta = (realDt * Math.min(timeWarp, 720) * 3600) / totalMissionSeconds;
+          setTrajectoryProgress((prev) => {
+            const next = prev + progressDelta;
+            return next > 1.0 ? 0 : next;
+          });
         }
 
         if (appMode === 'launch' && rocketTelemetry.phase !== 'pad') {
@@ -143,8 +151,10 @@ export function App() {
     if (mode === 'system') {
       setCameraPreset('free');
     } else if (mode === 'launch') {
+      setReferenceFrame('geocentric');
       setCameraPreset('spaceport');
     } else if (mode === 'transfer') {
+      setReferenceFrame('geocentric');
       setCameraPreset('free');
     }
   };

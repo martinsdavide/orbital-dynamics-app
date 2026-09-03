@@ -905,10 +905,22 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       geo.setAttribute('color', new THREE.Float32BufferAttribute(colorArr, 3));
       composedMoonSunLineRef.current.scale.setScalar(1);
     }
-    const moonAngle = (ephemeris.timeSeconds / MOON.orbitalPeriod) * (2 * Math.PI);
+    // In Lunar Mission mode, synchronize celestial bodies directly with the spacecraft timeline
+    const activeMissionTime = (appMode === 'transfer' && activeTrajectory && activeTrajectory.points.length > 0)
+      ? activeTrajectory.points[Math.min(activeTrajectory.points.length - 1, Math.floor(trajectoryProgress * (activeTrajectory.points.length - 1)))].t
+      : ephemeris.timeSeconds;
+
+    const moonAngle = (activeMissionTime / MOON.orbitalPeriod) * (2 * Math.PI);
+    const cosInc = Math.cos(MOON.inclinationToEcliptic);
+    const sinInc = Math.sin(MOON.inclinationToEcliptic);
     const moonX = Math.cos(moonAngle) * emDistScale;
-    const moonZ = Math.sin(moonAngle) * emDistScale;
-    const moonY = Math.sin(moonAngle) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
+    const moonZ = -cosInc * Math.sin(moonAngle) * emDistScale;
+    const moonY = sinInc * Math.sin(moonAngle) * emDistScale;
+
+    // Dynamically rotate Earth surface based on active mission time
+    if (earthMeshRef.current) {
+      earthMeshRef.current.rotation.y = (activeMissionTime / EARTH.rotationPeriod) * (2 * Math.PI);
+    }
 
     let currentEarthWorldPos = new THREE.Vector3(0, 0, 0);
     let currentMoonWorldPos = new THREE.Vector3(0, 0, 0);
