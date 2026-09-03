@@ -1,6 +1,6 @@
 import { EARTH, MOON } from './constants.ts';
 import type { Spaceport } from '../types/spaceport.ts';
-import type { EarthMoonTrajectory, MissionTrajectoryType, TrajectoryPoint, LaunchWindow, OptimizationTradeoff } from '../types/trajectory.ts';
+import type { EarthMoonTrajectory, MissionTrajectoryType, TrajectoryPoint, LaunchWindow, OptimizationTradeoff, MissionMilestone } from '../types/trajectory.ts';
 import type { Vector3D } from '../types/celestial.ts';
 import { getMoonEphemeris } from './nBodyIntegrator.ts';
 
@@ -77,6 +77,251 @@ export function calculateLaunchWindows(
 }
 
 /**
+ * Generates the 8 standard infographic mission milestones for a given mission archetype.
+ */
+export function getMissionMilestones(
+  type: MissionTrajectoryType,
+  spaceportName: string,
+  totalFlightHours: number
+): { milestones: MissionMilestone[]; outboundSplitFraction: number } {
+  if (type === 'free_return') {
+    return {
+      outboundSplitFraction: 0.52,
+      milestones: [
+        {
+          id: 1,
+          label: 'Lift-off: ' + spaceportName,
+          description: 'Launch of rocket and translunar payload from pad',
+          tFraction: 0.0,
+          timeHours: 0.0,
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 2,
+          label: 'High Earth Orbit',
+          description: 'Moves into high Earth elliptical staging & checkout orbit',
+          tFraction: 0.08,
+          timeHours: Number((totalFlightHours * 0.08).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 3,
+          label: 'Launcher Separation',
+          description: 'Spacecraft separates from core propulsion stage',
+          tFraction: 0.15,
+          timeHours: Number((totalFlightHours * 0.15).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 4,
+          label: 'Main Engine TLI Burn',
+          description: 'Service module engine fires to propel capsule to the Moon',
+          tFraction: 0.22,
+          timeHours: Number((totalFlightHours * 0.22).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 5,
+          label: 'Lunar Fly-by',
+          description: 'Free-return gravitational kick around lunar far-side (110 km alt)',
+          tFraction: 0.50,
+          timeHours: Number((totalFlightHours * 0.50).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 6,
+          label: 'Return to Earth',
+          description: 'Ballistic cislunar return coast toward Earth atmosphere',
+          tFraction: 0.75,
+          timeHours: Number((totalFlightHours * 0.75).toFixed(1)),
+          color: '#f59e0b',
+          category: 'inbound',
+        },
+        {
+          id: 7,
+          label: 'Crew Module Separates',
+          description: 'Service module jettisoned prior to atmospheric entry',
+          tFraction: 0.95,
+          timeHours: Number((totalFlightHours * 0.95).toFixed(1)),
+          color: '#f59e0b',
+          category: 'inbound',
+        },
+        {
+          id: 8,
+          label: 'Splashdown: Ocean Recovery',
+          description: 'Parachute deployment and oceanic recovery',
+          tFraction: 1.0,
+          timeHours: totalFlightHours,
+          color: '#f59e0b',
+          category: 'inbound',
+        },
+      ],
+    };
+  } else if (type === 'direct_loi') {
+    return {
+      outboundSplitFraction: 0.92,
+      milestones: [
+        {
+          id: 1,
+          label: 'Lift-off: ' + spaceportName,
+          description: 'Liftoff and atmospheric ascent to orbit',
+          tFraction: 0.0,
+          timeHours: 0.0,
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 2,
+          label: 'LEO Parking Orbit',
+          description: 'Circular Earth parking orbit insertion and systems verification',
+          tFraction: 0.08,
+          timeHours: Number((totalFlightHours * 0.08).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 3,
+          label: 'TLI Injection Ignition',
+          description: 'Main engine ignition for Trans-Lunar Injection (Δv = 3,140 m/s)',
+          tFraction: 0.16,
+          timeHours: Number((totalFlightHours * 0.16).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 4,
+          label: 'Cislunar Transit Coast',
+          description: 'Translunar coast with midcourse trajectory correction maneuvers',
+          tFraction: 0.50,
+          timeHours: Number((totalFlightHours * 0.50).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 5,
+          label: 'Lunar SOI Entry',
+          description: 'Spacecraft enters Moon gravitational sphere of influence',
+          tFraction: 0.85,
+          timeHours: Number((totalFlightHours * 0.85).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 6,
+          label: 'LOI Braking Burn',
+          description: 'Retrograde engine burn (Δv = 820 m/s) at 100 km perilune for capture',
+          tFraction: 0.92,
+          timeHours: Number((totalFlightHours * 0.92).toFixed(1)),
+          color: '#06b6d4',
+          category: 'orbit',
+        },
+        {
+          id: 7,
+          label: 'Low Lunar Orbit (100 km)',
+          description: 'Circular 100 km polar/equatorial operational lunar orbit',
+          tFraction: 0.96,
+          timeHours: Number((totalFlightHours * 0.96).toFixed(1)),
+          color: '#06b6d4',
+          category: 'orbit',
+        },
+        {
+          id: 8,
+          label: 'Target Site Phasing',
+          description: 'Orbital phasing and survey over lunar target site',
+          tFraction: 1.0,
+          timeHours: totalFlightHours,
+          color: '#06b6d4',
+          category: 'orbit',
+        },
+      ],
+    };
+  } else {
+    return {
+      outboundSplitFraction: 0.70,
+      milestones: [
+        {
+          id: 1,
+          label: 'Lift-off: ' + spaceportName,
+          description: 'Liftoff and ascent into Earth departure trajectory',
+          tFraction: 0.0,
+          timeHours: 0.0,
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 2,
+          label: 'LEO Staging Orbit',
+          description: 'Low Earth orbit staging and injection attitude alignment',
+          tFraction: 0.08,
+          timeHours: Number((totalFlightHours * 0.08).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 3,
+          label: 'High-Energy TLI Burn',
+          description: 'Hyperbolic escape injection burn toward lunar trailing edge',
+          tFraction: 0.16,
+          timeHours: Number((totalFlightHours * 0.16).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 4,
+          label: 'Hyperbolic Cislunar Transit',
+          description: 'High-speed transit toward the Moon',
+          tFraction: 0.45,
+          timeHours: Number((totalFlightHours * 0.45).toFixed(1)),
+          color: '#a855f7',
+          category: 'outbound',
+        },
+        {
+          id: 5,
+          label: 'Lunar Gravity Slingshot',
+          description: 'Hyperbolic trailing-edge swingby at 300 km alt (Moon Kick)',
+          tFraction: 0.68,
+          timeHours: Number((totalFlightHours * 0.68).toFixed(1)),
+          color: '#10b981',
+          category: 'escape',
+        },
+        {
+          id: 6,
+          label: 'Orbital Energy Boost',
+          description: 'Harnessing Moon orbital momentum for heliocentric speed gain',
+          tFraction: 0.75,
+          timeHours: Number((totalFlightHours * 0.75).toFixed(1)),
+          color: '#10b981',
+          category: 'escape',
+        },
+        {
+          id: 7,
+          label: 'Cislunar Departure',
+          description: 'Spacecraft departs lunar sphere of influence into deep space',
+          tFraction: 0.86,
+          timeHours: Number((totalFlightHours * 0.86).toFixed(1)),
+          color: '#10b981',
+          category: 'escape',
+        },
+        {
+          id: 8,
+          label: 'Interplanetary Trajectory',
+          description: 'Heliocentric cruise trajectory beyond the Earth-Moon system',
+          tFraction: 1.0,
+          timeHours: totalFlightHours,
+          color: '#10b981',
+          category: 'escape',
+        },
+      ],
+    };
+  }
+}
+
+/**
  * Solves and numerically generates a smooth, continuous Earth-Moon mission trajectory.
  */
 export function solveEarthMoonTrajectory(
@@ -130,6 +375,13 @@ export function solveEarthMoonTrajectory(
       activeWindow
     );
 
+  const { milestones, outboundSplitFraction } = getMissionMilestones(type, spaceport.name, flightTimeHoursTarget);
+
+  // Map exact pointIndex to milestones
+  milestones.forEach((m) => {
+    m.pointIndex = Math.min(points.length - 1, Math.floor(m.tFraction * (points.length - 1)));
+  });
+
   const loiDeltaV = type === 'direct_loi' ? measuredLoiDV : 0;
   const totalMissionDeltaV = Math.round(tliDeltaV + loiDeltaV + planeChangeDeltaV - spaceportBoost);
 
@@ -138,7 +390,7 @@ export function solveEarthMoonTrajectory(
     name: type === 'direct_loi'
       ? 'Direct Lunar Orbit Capture'
       : type === 'free_return'
-        ? 'Apollo-style Free-Return Trajectory'
+        ? 'Apollo / Artemis II Free-Return Trajectory'
         : 'Lunar Flyby / Gravity Assist',
     type,
     description: getTrajectoryDescription(type),
@@ -150,6 +402,8 @@ export function solveEarthMoonTrajectory(
     periapsisMoonAltitude: measuredPeriluneAltKm,
     returnEarthPerigeeAltitude: measuredReentryAltKm,
     points,
+    milestones,
+    outboundSplitFraction,
     lunarArrivalSpeed: measuredArrivalSpeed,
     earthDeparturePhaseAngle: 125,
     spaceportRotationBenefit: Math.round(spaceportBoost),
@@ -161,8 +415,7 @@ export function solveEarthMoonTrajectory(
 }
 
 /**
- * Propagates a seamless, smooth C2-continuous Earth-Moon mission trajectory.
- * Anchored directly to spaceport launchpad at T=0 with zero earth intersection.
+ * Propagates a seamless, smooth C2-continuous Earth-Moon mission trajectory with HEO phasing loops.
  */
 function propagateSeamlessTrajectory(
   type: MissionTrajectoryType,
@@ -180,6 +433,7 @@ function propagateSeamlessTrajectory(
   const points: TrajectoryPoint[] = [];
   const rEarth = EARTH.radius;
   const rLEO = rEarth + leoAlt;
+  const rHEOApogee = rEarth + 72000000; // 72,000 km HEO staging apogee (Artemis II profile)
   const rMoon = MOON.semiMajorAxis;
 
   const latRad = (spaceport.latitude * Math.PI) / 180;
@@ -192,61 +446,16 @@ function propagateSeamlessTrajectory(
   const earthRotAtT0 = (departureEpochSeconds / EARTH.rotationPeriod) * (2 * Math.PI);
   const phi0 = lonRad + earthRotAtT0;
 
-  // 1. Ascent Phase (Launchpad -> LEO Parking insertion: 0 to 1 hour)
-  const ascentSteps = 24;
-  for (let i = 0; i <= ascentSteps; i++) {
-    const p = i / ascentSteps;
-    const tRel = p * 3600;
-    const tAbs = departureEpochSeconds + tRel;
-    const curAlt = p * leoAlt;
-    const rCur = rEarth + curAlt;
-    const curAngle = phi0 + p * (Math.PI * 0.35);
-
-    const x = rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - p * 0.7));
-    const y = rCur * Math.sin(latRad * (1 - p * 0.7));
-    const z = -rCur * Math.sin(curAngle) * Math.cos(latRad * (1 - p * 0.7));
-
-    const curSpeed = spaceport.equatorialBoostVelocity + p * (7780 - spaceport.equatorialBoostVelocity);
-    const vx = -curSpeed * Math.sin(curAngle);
-    const vz = -curSpeed * Math.cos(curAngle);
-    const vy = curSpeed * 0.1 * Math.sin(latRad);
-    const trueSpeed = Math.sqrt(vx * vx + vy * vy + vz * vz);
-
-    const moonEphem = getMoonEphemeris(tAbs);
-    const distE = rCur;
-    const dMx = x - moonEphem.position.x;
-    const dMy = y - moonEphem.position.y;
-    const dMz = z - moonEphem.position.z;
-    const distM = Math.sqrt(dMx * dMx + dMy * dMy + dMz * dMz);
-
-    points.push({
-      t: tAbs,
-      position: { x, y, z },
-      velocity: { x: vx, y: vy, z: vz },
-      distanceToEarth: distE,
-      distanceToMoon: distM,
-      speed: Math.round(trueSpeed),
-      altitudeEarthKm: Math.round(curAlt / 1000),
-      phase: i === 0 ? 'Launch Pad Liftoff' : i < 10 ? 'Atmospheric Ascent & Gravity Turn' : 'LEO Parking Orbit Coast',
-    });
-  }
-
-  // 2. Cislunar Transit, Lunar Encounter, and Return Legs
-  const tliTimeAbs = departureEpochSeconds + 3600;
-  const transferDuration = totalMissionSeconds - 3600;
-  const totalSteps = 280;
+  const totalSteps = 360;
 
   let minMoonDist = Infinity;
   let minEarthDistPostPerilune = Infinity;
   let measuredLoiDV = 820;
   let measuredArrivalSpeed = 1.2;
 
-  // Initial TLI perigee angle
-  const tliAngle = phi0 + Math.PI * 0.35;
-
-  for (let step = 1; step <= totalSteps; step++) {
+  for (let step = 0; step <= totalSteps; step++) {
     const fraction = step / totalSteps;
-    const tAbs = tliTimeAbs + fraction * transferDuration;
+    const tAbs = departureEpochSeconds + fraction * totalMissionSeconds;
     const moonEphem = getMoonEphemeris(tAbs);
 
     let pos: Vector3D = { x: 0, y: 0, z: 0 };
@@ -255,12 +464,51 @@ function propagateSeamlessTrajectory(
     let phase = '';
 
     if (type === 'free_return') {
-      // Apollo Figure-8 Free Return Trajectory
-      if (fraction < 0.48) {
-        // Outbound cislunar transit (0 to 48% of transfer)
-        const u = fraction / 0.48;
+      // Apollo / Artemis II Profile:
+      // 0 to 8%: Ascent & LEO
+      // 8 to 22%: High Earth Orbit (HEO) Staging Loop
+      // 22 to 50%: Trans-Lunar Injection & Outbound Cislunar Transit
+      // 50 to 52%: Lunar Far-Side Slingshot (Perilune 110 km)
+      // 52 to 95%: Inbound Earth Return Transit
+      // 95 to 100%: Crew Module Sep & Atmospheric Splashdown
+
+      if (fraction < 0.08) {
+        // Atmospheric Ascent & LEO insertion
+        const u = fraction / 0.08;
+        const curAlt = u * leoAlt;
+        const rCur = rEarth + curAlt;
+        const curAngle = phi0 + u * (Math.PI * 0.4);
+
+        pos = {
+          x: rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
+          y: rCur * Math.sin(latRad * (1 - u * 0.7)),
+          z: -rCur * Math.sin(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
+        };
+        speed = spaceport.equatorialBoostVelocity + u * (7780 - spaceport.equatorialBoostVelocity);
+        vel = { x: -speed * Math.sin(curAngle), y: speed * 0.05, z: -speed * Math.cos(curAngle) };
+        phase = u === 0 ? 'Lift-off: ' + spaceport.name : 'Atmospheric Ascent to LEO';
+
+      } else if (fraction < 0.22) {
+        // High Earth Orbit (HEO) Elliptical Staging Loop around Earth
+        const u = (fraction - 0.08) / 0.14; // 0 to 1
+        const heoAngle = phi0 + Math.PI * 0.4 + u * (Math.PI * 2.1);
+        const rCur = rLEO + (rHEOApogee - rLEO) * Math.sin(u * Math.PI);
+
+        pos = {
+          x: rCur * Math.cos(heoAngle),
+          y: rCur * 0.12 * Math.sin(heoAngle),
+          z: -rCur * Math.sin(heoAngle),
+        };
+        speed = 7780 - Math.sin(u * Math.PI) * 4500;
+        vel = { x: -speed * Math.sin(heoAngle), y: speed * 0.05, z: -speed * Math.cos(heoAngle) };
+        phase = u < 0.5 ? 'High Earth Orbit (HEO) Staging' : 'Launcher Separation & TLI Attitude Setup';
+
+      } else if (fraction < 0.50) {
+        // Trans-Lunar Injection & Outbound Cislunar Transit
+        const u = (fraction - 0.22) / 0.28; // 0 to 1
         const rCur = rLEO + (rMoon - rLEO) * Math.sin(u * (Math.PI / 2));
         const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
+        const tliAngle = phi0 + Math.PI * 2.5;
         const curAngle = tliAngle + u * (moonAngle + 0.12 - tliAngle);
 
         pos = {
@@ -269,16 +517,12 @@ function propagateSeamlessTrajectory(
           z: -rCur * Math.sin(curAngle),
         };
         speed = 10920 - u * (10920 - 1100);
-        vel = {
-          x: -speed * Math.sin(curAngle),
-          y: speed * 0.05 * Math.sin(latRad),
-          z: -speed * Math.cos(curAngle),
-        };
-        phase = u < 0.05 ? 'Trans-Lunar Injection (TLI) Burn' : u < 0.85 ? 'Trans-Lunar Cislunar Coast' : 'Lunar SOI Hyperbolic Approach';
+        vel = { x: -speed * Math.sin(curAngle), y: speed * 0.05, z: -speed * Math.cos(curAngle) };
+        phase = u < 0.1 ? 'Main Engine TLI Burn' : 'Trans-Lunar Cislunar Coast';
 
       } else if (fraction <= 0.52) {
-        // Lunar Far-Side Gravitational Assist Swingby (Perilune at 110 km alt)
-        const u = (fraction - 0.48) / 0.04; // 0 to 1
+        // Lunar Far-Side Slingshot (110 km alt perilune)
+        const u = (fraction - 0.50) / 0.02; // 0 to 1
         const periluneR = MOON.radius + 110000;
         const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
         const swingAngle = moonAngle + Math.PI * (0.55 - u * 1.1);
@@ -289,17 +533,13 @@ function propagateSeamlessTrajectory(
           z: moonEphem.position.z - periluneR * Math.sin(swingAngle),
         };
         speed = 2450;
-        vel = {
-          x: -speed * Math.sin(swingAngle),
-          y: speed * 0.1 * Math.cos(u * Math.PI),
-          z: -speed * Math.cos(swingAngle),
-        };
-        phase = 'Lunar Far-Side Gravity Slingshot (Moon Kick)';
+        vel = { x: -speed * Math.sin(swingAngle), y: speed * 0.1 * Math.cos(u * Math.PI), z: -speed * Math.cos(swingAngle) };
+        phase = 'Lunar Far-Side Gravity Assist Slingshot (Moon Kick)';
 
-      } else {
-        // Inbound Earth Return (52% to 100% of transfer)
-        const u = (fraction - 0.52) / 0.48; // 0 to 1
-        const rReturnPerigee = rEarth + 50000; // 50 km atmospheric entry
+      } else if (fraction < 0.95) {
+        // Inbound Return to Earth
+        const u = (fraction - 0.52) / 0.43; // 0 to 1
+        const rReturnPerigee = rEarth + 50000;
         const rCur = rMoon - (rMoon - rReturnPerigee) * Math.sin(u * (Math.PI / 2));
         const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
         const returnAngle = moonAngle - Math.PI * 0.85 * u;
@@ -310,39 +550,64 @@ function propagateSeamlessTrajectory(
           z: -rCur * Math.sin(returnAngle),
         };
         speed = 1100 + u * (11050 - 1100);
-        vel = {
-          x: -speed * Math.sin(returnAngle),
-          y: -speed * 0.05,
-          z: -speed * Math.cos(returnAngle),
+        vel = { x: -speed * Math.sin(returnAngle), y: -speed * 0.05, z: -speed * Math.cos(returnAngle) };
+        phase = 'Return to Earth Ballistic Coast';
+
+      } else {
+        // Crew Module Separation & Oceanic Splashdown
+        const u = (fraction - 0.95) / 0.05; // 0 to 1
+        const rCur = rEarth + 50000 * (1 - u);
+        const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
+        const entryAngle = moonAngle - Math.PI * 0.85 - u * 0.15;
+
+        pos = {
+          x: rCur * Math.cos(entryAngle),
+          y: rCur * 0.05 * (1 - u),
+          z: -rCur * Math.sin(entryAngle),
         };
-        phase = u > 0.94 ? 'Earth Atmospheric Re-entry & Splashdown' : 'Earth Return Ballistic Coast';
+        speed = 11050 - u * 11000;
+        vel = { x: -speed * Math.sin(entryAngle), y: 0, z: -speed * Math.cos(entryAngle) };
+        phase = u < 0.5 ? 'Crew Module Separates from Service Module' : 'Splashdown: Ocean Recovery';
       }
 
     } else if (type === 'direct_loi') {
-      // Direct Lunar Orbit Capture
-      if (fraction < 0.90) {
-        // Outbound transit to Moon
-        const u = fraction / 0.90;
+      // Direct Lunar Orbit Insertion Profile
+      if (fraction < 0.16) {
+        // Ascent & LEO Parking Orbit
+        const u = fraction / 0.16;
+        const curAlt = Math.min(leoAlt, u * leoAlt * 1.5);
+        const rCur = rEarth + curAlt;
+        const curAngle = phi0 + u * (Math.PI * 1.6);
+
+        pos = {
+          x: rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
+          y: rCur * Math.sin(latRad * (1 - u * 0.7)),
+          z: -rCur * Math.sin(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
+        };
+        speed = spaceport.equatorialBoostVelocity + u * (7780 - spaceport.equatorialBoostVelocity);
+        vel = { x: -speed * Math.sin(curAngle), y: speed * 0.05, z: -speed * Math.cos(curAngle) };
+        phase = u < 0.5 ? 'Lift-off & Ascent' : 'LEO Parking Orbit Staging';
+
+      } else if (fraction < 0.85) {
+        // TLI & Cislunar Transit
+        const u = (fraction - 0.16) / 0.69;
         const rCur = rLEO + (rMoon - rLEO) * Math.sin(u * (Math.PI / 2));
         const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
+        const tliAngle = phi0 + Math.PI * 1.6;
         const curAngle = tliAngle + u * (moonAngle - 0.05 - tliAngle);
 
         pos = {
           x: rCur * Math.cos(curAngle),
-          y: (rCur / rMoon) * moonEphem.position.y * 0.8 + (1 - u) * (rLEO * 0.1 * Math.sin(latRad)),
+          y: (rCur / rMoon) * moonEphem.position.y * 0.8,
           z: -rCur * Math.sin(curAngle),
         };
         speed = 10880 - u * (10880 - 1200);
-        vel = {
-          x: -speed * Math.sin(curAngle),
-          y: speed * 0.05,
-          z: -speed * Math.cos(curAngle),
-        };
-        phase = u < 0.05 ? 'Trans-Lunar Injection (TLI) Burn' : u < 0.85 ? 'Trans-Lunar Cislunar Coast' : 'Lunar SOI Hyperbolic Approach';
+        vel = { x: -speed * Math.sin(curAngle), y: speed * 0.05, z: -speed * Math.cos(curAngle) };
+        phase = u < 0.1 ? 'TLI Injection Ignition' : 'Cislunar Transit Coast';
 
-      } else if (fraction <= 0.94) {
-        // Perilune Approach & LOI Braking Burn (100 km alt)
-        const u = (fraction - 0.90) / 0.04;
+      } else if (fraction <= 0.92) {
+        // Lunar SOI Entry & LOI Braking Burn (100 km alt)
+        const u = (fraction - 0.85) / 0.07;
         const rTarget = MOON.radius + 100000;
         const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
         const periluneAngle = moonAngle + Math.PI * 0.5 * (1 - u);
@@ -352,21 +617,17 @@ function propagateSeamlessTrajectory(
           y: moonEphem.position.y + rTarget * 0.1 * Math.sin(u * Math.PI),
           z: moonEphem.position.z - rTarget * Math.sin(periluneAngle),
         };
-        speed = 2450 - u * 820; // LOI braking
-        vel = {
-          x: -speed * Math.sin(periluneAngle),
-          y: speed * 0.05,
-          z: -speed * Math.cos(periluneAngle),
-        };
+        speed = 2450 - u * 820;
+        vel = { x: -speed * Math.sin(periluneAngle), y: speed * 0.05, z: -speed * Math.cos(periluneAngle) };
         measuredLoiDV = 820;
-        phase = 'Lunar Orbit Insertion (LOI) Capture Burn (Δv = 820 m/s)';
+        phase = u < 0.5 ? 'Lunar SOI Entry' : 'LOI Capture Braking Burn (Δv = 820 m/s)';
 
       } else {
-        // Low Lunar Orbit (100 km circular)
-        const u = (fraction - 0.94) / 0.06;
+        // Circular Low Lunar Orbit (100 km)
+        const u = (fraction - 0.92) / 0.08;
         const lloRadius = MOON.radius + 100000;
         const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
-        const orbitAngle = moonAngle + u * Math.PI * 2;
+        const orbitAngle = moonAngle + u * Math.PI * 2.5;
 
         pos = {
           x: moonEphem.position.x + lloRadius * Math.cos(orbitAngle),
@@ -374,20 +635,31 @@ function propagateSeamlessTrajectory(
           z: moonEphem.position.z - lloRadius * Math.sin(orbitAngle),
         };
         speed = 1633;
-        vel = {
-          x: -speed * Math.sin(orbitAngle),
-          y: speed * 0.05,
-          z: -speed * Math.cos(orbitAngle),
-        };
-        phase = 'Circular Low Lunar Orbit (100 km Altitude)';
+        vel = { x: -speed * Math.sin(orbitAngle), y: speed * 0.05, z: -speed * Math.cos(orbitAngle) };
+        phase = u < 0.6 ? 'Circular Low Lunar Orbit (100 km)' : 'Target Landing Site Alignment';
       }
 
     } else {
-      // Lunar Flyby & Deep Space Slingshot
-      if (fraction < 0.65) {
-        const u = fraction / 0.65;
+      // Lunar Gravity Assist / Escape Profile
+      if (fraction < 0.16) {
+        const u = fraction / 0.16;
+        const rCur = rEarth + u * leoAlt;
+        const curAngle = phi0 + u * (Math.PI * 1.5);
+
+        pos = {
+          x: rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
+          y: rCur * Math.sin(latRad * (1 - u * 0.7)),
+          z: -rCur * Math.sin(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
+        };
+        speed = spaceport.equatorialBoostVelocity + u * (7780 - spaceport.equatorialBoostVelocity);
+        vel = { x: -speed * Math.sin(curAngle), y: 0, z: -speed * Math.cos(curAngle) };
+        phase = 'Liftoff & LEO Staging Orbit';
+
+      } else if (fraction < 0.68) {
+        const u = (fraction - 0.16) / 0.52;
         const rCur = rLEO + (rMoon - rLEO) * Math.sin(u * (Math.PI / 2));
         const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
+        const tliAngle = phi0 + Math.PI * 1.5;
         const curAngle = tliAngle + u * (moonAngle - 0.04 - tliAngle);
 
         pos = {
@@ -397,11 +669,10 @@ function propagateSeamlessTrajectory(
         };
         speed = 10920 - u * 8000;
         vel = { x: -speed * Math.sin(curAngle), y: 0, z: -speed * Math.cos(curAngle) };
-        phase = u < 0.1 ? 'Trans-Lunar Injection' : u < 0.85 ? 'Cislunar Transit' : 'Lunar Flyby Approach';
+        phase = u < 0.1 ? 'High-Energy TLI Burn' : 'Hyperbolic Cislunar Transit';
 
-      } else if (fraction <= 0.72) {
-        // Lunar Flyby encounter (300 km alt)
-        const u = (fraction - 0.65) / 0.07;
+      } else if (fraction <= 0.75) {
+        const u = (fraction - 0.68) / 0.07;
         const flybyR = MOON.radius + 300000;
         const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
         const swingAngle = moonAngle + Math.PI * (0.45 - u * 0.9);
@@ -413,23 +684,22 @@ function propagateSeamlessTrajectory(
         };
         speed = 2200;
         vel = { x: -speed * Math.sin(swingAngle), y: 0, z: -speed * Math.cos(swingAngle) };
-        phase = 'Lunar Gravity Assist Flyby';
+        phase = 'Lunar Gravity Assist (Moon Kick)';
 
       } else {
-        // Heliocentric Escape Slingshot
-        const u = (fraction - 0.72) / 0.28;
-        const rCur = rMoon + (rMoon * 0.35) * u;
+        const u = (fraction - 0.75) / 0.25;
+        const rCur = rMoon + (rMoon * 0.45) * u;
         const moonAngle = Math.atan2(-moonEphem.position.z, moonEphem.position.x);
-        const escAngle = moonAngle - Math.PI * 0.45 - u * 0.3;
+        const escAngle = moonAngle - Math.PI * 0.45 - u * 0.35;
 
         pos = {
           x: rCur * Math.cos(escAngle),
-          y: moonEphem.position.y * (1 + u * 0.2),
+          y: moonEphem.position.y * (1 + u * 0.3),
           z: -rCur * Math.sin(escAngle),
         };
-        speed = 1800 + u * 400;
+        speed = 1800 + u * 600;
         vel = { x: -speed * Math.sin(escAngle), y: 0, z: -speed * Math.cos(escAngle) };
-        phase = 'Heliocentric Interplanetary Escape';
+        phase = u < 0.4 ? 'Orbital Energy Boost & Cislunar Departure' : 'Interplanetary Trajectory';
       }
     }
 
@@ -500,7 +770,7 @@ export function generateTradeoffAnalysis(): OptimizationTradeoff[] {
 
 function getTrajectoryDescription(type: MissionTrajectoryType): string {
   if (type === 'free_return') {
-    return 'Apollo-proven 3-body gravitational slingshot trajectory that harnesses the Moon\'s gravitational kick around the lunar far side to naturally return into Earth\'s atmosphere with zero propulsion.';
+    return 'Apollo / Artemis II 3-body gravitational slingshot trajectory featuring High Earth Orbit (HEO) staging and far-side lunar gravity assist returning directly to Earth.';
   } else if (type === 'direct_loi') {
     return '3-body gravitational capture trajectory that enters the Moon\'s Sphere of Influence and executes a retrograde Lunar Orbit Insertion (LOI) burn into a 100 km circular Low Lunar Orbit.';
   }

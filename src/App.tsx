@@ -6,6 +6,7 @@ import { TimeControls } from './components/ui/TimeControls';
 import { SystemViewControls } from './components/ui/SystemViewControls';
 import { LaunchViewControls } from './components/ui/LaunchViewControls';
 import { TrajectoryPlanner } from './components/ui/TrajectoryPlanner';
+import { MissionInfographicLegend } from './components/ui/MissionInfographicLegend';
 import { TelemetryHUD } from './components/ui/TelemetryHUD';
 import { FlightChartModal } from './components/ui/FlightChartModal';
 import { InfoModal } from './components/ui/InfoModal';
@@ -157,7 +158,7 @@ export function App() {
     } else if (mode === 'transfer') {
       setReferenceFrame('geocentric');
       setScaleMode('true');
-      setCameraPreset('free');
+      setCameraPreset('infographic');
     }
   };
 
@@ -300,17 +301,29 @@ export function App() {
       )}
 
       {appMode === 'transfer' && (
-        <TrajectoryPlanner
-          selectedSpaceport={selectedSpaceport}
-          onSelectSpaceport={setSelectedSpaceport}
-          activeTrajectory={activeTrajectory}
-          onUpdateTrajectory={setActiveTrajectory}
-          trajectoryProgress={trajectoryProgress}
-          onChangeProgress={setTrajectoryProgress}
-          onSelectLaunchWindow={(win) => {
-            setSimTimeSeconds(win.openTimeHours * 3600);
-          }}
-        />
+        <>
+          <TrajectoryPlanner
+            selectedSpaceport={selectedSpaceport}
+            onSelectSpaceport={setSelectedSpaceport}
+            activeTrajectory={activeTrajectory}
+            onUpdateTrajectory={setActiveTrajectory}
+            trajectoryProgress={trajectoryProgress}
+            onChangeProgress={setTrajectoryProgress}
+            onSelectLaunchWindow={(win) => {
+              setSimTimeSeconds(win.openTimeHours * 3600);
+            }}
+          />
+          <MissionInfographicLegend
+            activeTrajectory={activeTrajectory}
+            trajectoryProgress={trajectoryProgress}
+            onSelectMilestone={(m) => {
+              setTrajectoryProgress(m.tFraction);
+              if (activeTrajectory.points[m.pointIndex || 0]) {
+                setSimTimeSeconds(activeTrajectory.points[m.pointIndex || 0].t);
+              }
+            }}
+          />
+        </>
       )}
 
       {appMode === 'launch' && <TelemetryHUD telemetry={rocketTelemetry} />}

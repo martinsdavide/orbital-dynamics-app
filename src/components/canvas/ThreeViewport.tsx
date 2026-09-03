@@ -12,6 +12,49 @@ import {
   createParticleTexture,
 } from './TextureGenerator';
 
+// Helper to create glowing numbered milestone badge sprites (1 to 8)
+function createMilestoneBadgeTexture(num: number, color: string): THREE.Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return new THREE.Texture();
+
+  // Glow ring
+  const grad = ctx.createRadialGradient(64, 64, 20, 64, 64, 60);
+  grad.addColorStop(0, color);
+  grad.addColorStop(0.7, color);
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(64, 64, 58, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Solid badge circle
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(64, 64, 44, 0, Math.PI * 2);
+  ctx.fill();
+
+  // White border
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(64, 64, 42, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Number text
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 52px monospace, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(num.toString(), 64, 66);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export type ActiveAppMode = 'system' | 'launch' | 'transfer';
 
 export function getScalingConfig(scaleMode: ScaleMode) {
@@ -53,7 +96,7 @@ export function getScalingConfig(scaleMode: ScaleMode) {
   }
 }
 
-export type CameraPreset = 'free' | 'earth' | 'moon' | 'sun' | 'rocket' | 'spaceport' | 'earthrise';
+export type CameraPreset = 'free' | 'earth' | 'moon' | 'sun' | 'rocket' | 'spaceport' | 'earthrise' | 'infographic';
 
 interface ThreeViewportProps {
   appMode: ActiveAppMode;
@@ -140,6 +183,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const ascentPositionsRef = useRef<THREE.Vector3[]>([]);
 
   const transferTrajectoryLineRef = useRef<THREE.Line | null>(null);
+  const inboundTrajectoryLineRef = useRef<THREE.Line | null>(null);
+  const milestoneBadgesGroupRef = useRef<THREE.Group | null>(null);
   const spacecraftMarkerRef = useRef<THREE.Group | null>(null);
 
   const isDraggingRef = useRef(false);
@@ -1247,9 +1292,50 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const curve = new THREE.CatmullRomCurve3(rawSplinePts, false, 'centripetal', 0.5);
       const ribbonPts = curve.getPoints(400);
 
-      if (transferTrajectoryLineRef.current && ribbonPts.length > 0) {
-        transferTrajectoryLineRef.current.geometry.setFromPoints(ribbonPts);
+      // Split into Outbound and Inbound ribbons
+      const splitFrac = activeTrajectory.outboundSplitFraction || 0.52;
+      const splitIdx = Math.floor(splitFrac * ribbonPts.length);
+      const outboundPts = ribbonPts.slice(0, splitIdx + 1);
+      const inboundPts = ribbonPts.slice(splitIdx);
+
+      if (transferTrajectoryLineRef.current && outboundPts.length > 0) {
+        transferTrajectoryLineRef.current.geometry.setFromPoints(outboundPts);
         transferTrajectoryLineRef.current.visible = true;
+      }
+
+      if (inboundTrajectoryLineRef.current && inboundPts.length > 0) {
+        inboundTrajectoryLineRef.current.geometry.setFromPoints(inboundPts);
+        // Color inbound ribbon based on mission archetype
+        const inbColor = activeTrajectory.type === 'free_return' ? 0xf59e0b : activeTrajectory.type === 'direct_loi' ? 0x06b6d4 : 0x10b981;
+        (inboundTrajectoryLineRef.current.material as THREE.LineBasicMaterial).color.setHex(inbColor);
+        inboundTrajectoryLineRef.current.visible = true;
+      }
+
+      // Render 3D Numbered Milestone Badges (1 to 8)
+      if (milestoneBadgesGroupRef.current && activeTrajectory.milestones) {
+        // Clear previous badges
+        while (milestoneBadgesGroupRef.current.children.length > 0) {
+          const child = milestoneBadgesGroupRef.current.children[0];
+          milestoneBadgesGroupRef.current.remove(child);
+        }
+
+        activeTrajectory.milestones.forEach((m) => {
+          const ptIdx = Math.min(ribbonPts.length - 1, Math.floor(m.tFraction * (ribbonPts.length - 1)));
+          const badgePos = ribbonPts[ptIdx];
+          if (!badgePos) return;
+
+          const texture = createMilestoneBadgeTexture(m.id, m.color);
+          const spriteMat = new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true,
+            depthTest: false,
+          });
+          const sprite = new THREE.Sprite(spriteMat);
+          sprite.position.copy(badgePos);
+          sprite.scale.set(7.5, 7.5, 1);
+          milestoneBadgesGroupRef.current?.add(sprite);
+        });
+        milestoneBadgesGroupRef.current.visible = true;
       }
 
       if (spacecraftMarkerRef.current && ribbonPts.length > 0) {
@@ -1269,6 +1355,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       if (rocketGroupRef.current) rocketGroupRef.current.visible = false;
       if (ascentTrajectoryLineRef.current) ascentTrajectoryLineRef.current.visible = false;
       if (transferTrajectoryLineRef.current) transferTrajectoryLineRef.current.visible = false;
+      if (inboundTrajectoryLineRef.current) inboundTrajectoryLineRef.current.visible = false;
+      if (milestoneBadgesGroupRef.current) milestoneBadgesGroupRef.current.visible = false;
       if (spacecraftMarkerRef.current) spacecraftMarkerRef.current.visible = false;
     }
 
@@ -1295,6 +1383,15 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     } else if (cameraPreset === 'earthrise' && moonGroupRef.current) {
       cameraTargetRef.current.copy(currentMoonWorldPos);
       cameraSphericalRef.current.radius = scales.moonCameraRadius * 0.7;
+    } else if (cameraPreset === 'infographic') {
+      // Infographic Overview (Frames Earth at top, Moon at bottom in vertical figure-8 perspective)
+      const midX = (currentEarthWorldPos.x + currentMoonWorldPos.x) / 2;
+      const midY = (currentEarthWorldPos.y + currentMoonWorldPos.y) / 2;
+      const midZ = (currentEarthWorldPos.z + currentMoonWorldPos.z) / 2;
+      cameraTargetRef.current.set(midX, midY, midZ);
+      cameraSphericalRef.current.radius = scales.earthMoonDistance * 1.35;
+      cameraSphericalRef.current.phi = 0.25; // Top-down inclined perspective
+      cameraSphericalRef.current.theta = Math.PI / 2;
     }
   }, [
     appMode,

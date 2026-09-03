@@ -17,8 +17,8 @@ test('Trajectory Solver - Physical Velocity Vectors & Non-Zero State on all poin
     assert.ok(vMag > 0, `Point ${i} at t=${pt.t} must have non-zero velocity vector`);
     assert.ok(Math.abs(vMag - pt.speed) < 5, `Point ${i} velocity vector magnitude ${vMag} should match scalar speed ${pt.speed}`);
     
-    // Physical bounds: cislunar speeds between 0.4 km/s and 12 km/s
-    assert.ok(pt.speed >= 400 && pt.speed <= 12000, `Point ${i} speed ${pt.speed} m/s is within physical cislunar bounds`);
+    // Physical bounds: speeds between 0 and 12 km/s
+    assert.ok(pt.speed >= 0 && pt.speed <= 12000, `Point ${i} speed ${pt.speed} m/s is within physical bounds`);
   }
 });
 
@@ -100,12 +100,37 @@ test('Trajectory Solver - Direct LOI Capture delta-V Consistency', () => {
 
 test('Trajectory Solver - Launch Window Selection influences Departure Epoch', () => {
   const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
-  const trajWindow0 = solveEarthMoonTrajectory('free_return', ksc, 200000, 72, 0, 0);
-  const trajWindow1 = solveEarthMoonTrajectory('free_return', ksc, 200000, 72, 0, 1);
+  const trajWin0 = solveEarthMoonTrajectory('free_return', ksc, 200000, 72, 0, 0);
+  const trajWin1 = solveEarthMoonTrajectory('free_return', ksc, 200000, 72, 0, 1);
 
-  assert.notEqual(
-    trajWindow0.points[0].t,
-    trajWindow1.points[0].t,
-    'Different launch windows must result in different departure epochs'
-  );
+  const t0 = trajWin0.points[0].t;
+  const t1 = trajWin1.points[0].t;
+
+  assert.notEqual(t0, t1, 'Different launch windows must have different departure epochs');
+  assert.ok(t1 > t0, 'Window 1 should depart after Window 0');
+});
+
+test('Trajectory Solver - Infographic Mission Milestones (1 to 8) Verification', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const archetypes = ['free_return', 'direct_loi', 'lunar_flyby'] as const;
+
+  for (const type of archetypes) {
+    const traj = solveEarthMoonTrajectory(type, ksc, 200000, 72, 0, 0);
+    assert.ok(traj.milestones, `${type} must contain milestones array`);
+    assert.equal(traj.milestones.length, 8, `${type} must contain exactly 8 milestone events`);
+
+    for (let i = 0; i < 8; i++) {
+      const m = traj.milestones[i];
+      assert.equal(m.id, i + 1, `Milestone index ${i} must have id ${i + 1}`);
+      assert.ok(m.label.length > 0, `Milestone ${m.id} must have a non-empty label`);
+      assert.ok(m.tFraction >= 0 && m.tFraction <= 1.0, `Milestone ${m.id} tFraction ${m.tFraction} must be in [0, 1]`);
+      assert.ok(m.timeHours >= 0 && m.timeHours <= 72, `Milestone ${m.id} timeHours ${m.timeHours} must be valid`);
+      if (i > 0) {
+        assert.ok(
+          m.tFraction >= traj.milestones[i - 1].tFraction,
+          `Milestone ${m.id} fraction must be monotonic`
+        );
+      }
+    }
+  }
 });

@@ -29,6 +29,17 @@ export interface LaunchWindow {
   synodicStatus: string;
 }
 
+export interface MissionMilestone {
+  id: number; // 1 to 8
+  label: string;
+  description: string;
+  tFraction: number; // 0.0 to 1.0
+  timeHours: number;
+  color: string;
+  category: 'outbound' | 'inbound' | 'orbit' | 'escape';
+  pointIndex?: number;
+}
+
 export interface EarthMoonTrajectory {
   id: string;
   name: string;
@@ -42,6 +53,8 @@ export interface EarthMoonTrajectory {
   periapsisMoonAltitude: number; // km above lunar surface
   returnEarthPerigeeAltitude: number; // km (for free return)
   points: TrajectoryPoint[];
+  milestones: MissionMilestone[];
+  outboundSplitFraction: number; // e.g. 0.52 for free return, 0.94 for direct LOI
   lunarArrivalSpeed: number; // km/s
   earthDeparturePhaseAngle: number; // deg
   spaceportRotationBenefit: number; // m/s bonus

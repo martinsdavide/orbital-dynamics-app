@@ -98,6 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
             <option value="spaceport" className="bg-gray-900">Launchpad Cam</option>
             <option value="rocket" className="bg-gray-900">Chase Rocket</option>
             <option value="earthrise" className="bg-gray-900">Moon Earthrise</option>
+            <option value="infographic" className="bg-gray-900">Artemis / Infographic View</option>
           </select>
         </div>
 
