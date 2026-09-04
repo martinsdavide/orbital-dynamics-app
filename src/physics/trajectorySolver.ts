@@ -2,7 +2,7 @@ import { EARTH, MOON } from './constants.ts';
 import type { Spaceport } from '../types/spaceport.ts';
 import type { EarthMoonTrajectory, MissionTrajectoryType, TrajectoryPoint, LaunchWindow, OptimizationTradeoff, MissionMilestone } from '../types/trajectory.ts';
 import type { Vector3D } from '../types/celestial.ts';
-import { getMoonEphemeris } from './nBodyIntegrator.ts';
+import { getMoonEphemeris, getSunEphemeris, rk4Step } from './nBodyIntegrator.ts';
 
 /**
  * Calculates daily launch windows from a given spaceport targeting the lunar orbital plane.
@@ -433,8 +433,6 @@ function propagateSeamlessTrajectory(
   const points: TrajectoryPoint[] = [];
   const rEarth = EARTH.radius;
   const rLEO = rEarth + leoAlt;
-  const rHEOApogee = rEarth + 72000000; // 72,000 km HEO staging apogee (Artemis II profile)
-  const rMoon = MOON.semiMajorAxis;
 
   const latRad = (spaceport.latitude * Math.PI) / 180;
   const departureEpochSeconds = launchWindow.openTimeHours * 3600;
@@ -447,359 +445,437 @@ function propagateSeamlessTrajectory(
   let measuredLoiDV = 820;
   let measuredArrivalSpeed = 1.2;
 
-  // ── Arc-Length-Compensated Inbound LUT (free_return only) ──────────────────
-  // The inbound leg sweeps ~π radians while radius falls from rMoon (~384,400 km)
-  // to rSplashdown (~6,421 km).  A LINEAR angle sweep creates enormous arc steps
-  // at the Moon end (≈7,700 km/step at 360 pts) that make the spline look jagged.
-  // Fix: integrate 1/r along the radius profile so angular sweep rate is inversely
-  // proportional to radius — keeping arc-length per step roughly constant (~1,700 km).
-  const N_LUT = 2000;
-  const rSplashdownFR = rEarth + 50000;
-  const inboundRAtU: number[] = [];
-  const inboundCumInvR: number[] = [0];
-  for (let i = 0; i <= N_LUT; i++) {
-    const uLut = i / N_LUT;
-    const sinHalf = Math.sin((Math.PI / 2) * uLut);
-    inboundRAtU.push(rMoon - (rMoon - rSplashdownFR) * sinHalf * sinHalf);
-    if (i > 0) {
-      inboundCumInvR.push(inboundCumInvR[i - 1] + 1 / inboundRAtU[i]);
-    }
-  }
-  const totalInvR = inboundCumInvR[N_LUT];
+  function evaluateHermite(
+    p0: Vector3D,
+    v0: Vector3D,
+    p1: Vector3D,
+    v1: Vector3D,
+    duration: number,
+    u: number
+  ): { pos: Vector3D; vel: Vector3D } {
+    const u2 = u * u;
+    const u3 = u2 * u;
 
-  /** Arc-length-compensated angle fraction [0,1] for inbound parameter u [0,1] */
-  function inboundAngFrac(u: number): number {
-    const lutIdx = u * N_LUT;
-    const lo = Math.floor(lutIdx);
-    const hi = Math.min(N_LUT, lo + 1);
-    const t = lutIdx - lo;
-    return (inboundCumInvR[lo] + (inboundCumInvR[hi] - inboundCumInvR[lo]) * t) / totalInvR;
-  }
+    const h00 = 2 * u3 - 3 * u2 + 1;
+    const h10 = u3 - 2 * u2 + u;
+    const h01 = -2 * u3 + 3 * u2;
+    const h11 = u3 - u2;
 
-  /** Arc-length-compensated radius for inbound parameter u [0,1] */
-  function inboundRVal(u: number): number {
-    const lutIdx = u * N_LUT;
-    const lo = Math.floor(lutIdx);
-    const hi = Math.min(N_LUT, lo + 1);
-    const t = lutIdx - lo;
-    return inboundRAtU[lo] + (inboundRAtU[hi] - inboundRAtU[lo]) * t;
-  }
-  // ───────────────────────────────────────────────────────────────────────────
+    const t0x = v0.x * duration, t0y = v0.y * duration, t0z = v0.z * duration;
+    const t1x = v1.x * duration, t1y = v1.y * duration, t1z = v1.z * duration;
 
-  // ── Arc-Length-Compensated Outbound LUT (free_return only) ─────────────────
-  // Same issue as inbound: r grows from rLEO to rMoon, so linear angle sweep
-  // creates tiny steps near Earth and huge steps (~5,990 km) near the Moon.
-  // Same fix: angular sweep rate ∝ 1/r via cumulative 1/r integral LUT.
-  const outboundRAtU: number[] = [];
-  const outboundCumInvR: number[] = [0];
-  for (let i = 0; i <= N_LUT; i++) {
-    const uLut = i / N_LUT;
-    const r = rLEO + (rMoon - rLEO) * Math.sin(uLut * (Math.PI / 2));
-    outboundRAtU.push(r);
-    if (i > 0) {
-      outboundCumInvR.push(outboundCumInvR[i - 1] + 1 / r);
-    }
-  }
-  const outboundTotalInvR = outboundCumInvR[N_LUT];
+    const pos: Vector3D = {
+      x: h00 * p0.x + h10 * t0x + h01 * p1.x + h11 * t1x,
+      y: h00 * p0.y + h10 * t0y + h01 * p1.y + h11 * t1y,
+      z: h00 * p0.z + h10 * t0z + h01 * p1.z + h11 * t1z,
+    };
 
-  /** Arc-length-compensated angle fraction [0,1] for outbound parameter u [0,1] */
-  function outboundAngFrac(u: number): number {
-    const lutIdx = u * N_LUT;
-    const lo = Math.floor(lutIdx);
-    const hi = Math.min(N_LUT, lo + 1);
-    const t = lutIdx - lo;
-    return (outboundCumInvR[lo] + (outboundCumInvR[hi] - outboundCumInvR[lo]) * t) / outboundTotalInvR;
-  }
+    const dh00 = (6 * u2 - 6 * u) / duration;
+    const dh10 = (3 * u2 - 4 * u + 1);
+    const dh01 = (-6 * u2 + 6 * u) / duration;
+    const dh11 = (3 * u2 - 2 * u);
 
-  /** Arc-length-compensated radius for outbound parameter u [0,1] */
-  function outboundRVal(u: number): number {
-    const lutIdx = u * N_LUT;
-    const lo = Math.floor(lutIdx);
-    const hi = Math.min(N_LUT, lo + 1);
-    const t = lutIdx - lo;
-    return outboundRAtU[lo] + (outboundRAtU[hi] - outboundRAtU[lo]) * t;
-  }
-  // ───────────────────────────────────────────────────────────────────────────
+    const vel: Vector3D = {
+      x: dh00 * p0.x + dh10 * v0.x + dh01 * p1.x + dh11 * v1.x,
+      y: dh00 * p0.y + dh10 * v0.y + dh01 * p1.y + dh11 * v1.y,
+      z: dh00 * p0.z + dh10 * v0.z + dh01 * p1.z + dh11 * v1.z,
+    };
 
-  // ── Arc-Length-Compensated HEO Loop LUT (free_return only) ─────────────────
-  // HEO apogee is 72,000 km → r peaks at 78,371 km → 4,883 km/step with linear angle.
-  // Same fix: angular sweep ∝ 1/r keeps all HEO steps uniformly ~2,000 km.
-  const heoRAtU: number[] = [];
-  const heoCumInvR: number[] = [0];
-  for (let i = 0; i <= N_LUT; i++) {
-    const uLut = i / N_LUT;
-    const r = rLEO + (rHEOApogee - rLEO) * Math.sin(uLut * Math.PI);
-    heoRAtU.push(r);
-    if (i > 0) {
-      heoCumInvR.push(heoCumInvR[i - 1] + 1 / r);
-    }
+    return { pos, vel };
   }
-  const heoTotalInvR = heoCumInvR[N_LUT];
-
-  /** Arc-length-compensated angle fraction [0,1] for HEO loop parameter u [0,1] */
-  function heoAngFrac(u: number): number {
-    const lutIdx = u * N_LUT;
-    const lo = Math.floor(lutIdx);
-    const hi = Math.min(N_LUT, lo + 1);
-    const t = lutIdx - lo;
-    return (heoCumInvR[lo] + (heoCumInvR[hi] - heoCumInvR[lo]) * t) / heoTotalInvR;
-  }
-
-  /** Arc-length-compensated radius for HEO loop parameter u [0,1] */
-  function heoRVal(u: number): number {
-    const lutIdx = u * N_LUT;
-    const lo = Math.floor(lutIdx);
-    const hi = Math.min(N_LUT, lo + 1);
-    const t = lutIdx - lo;
-    return heoRAtU[lo] + (heoRAtU[hi] - heoRAtU[lo]) * t;
-  }
-  // ───────────────────────────────────────────────────────────────────────────
 
   const rawPoints: { t: number; pos: Vector3D; phase: string }[] = [];
-
   const cosInc = Math.cos(MOON.inclinationToEcliptic);
   const sinInc = Math.sin(MOON.inclinationToEcliptic);
 
-  function mapOrbitalPlane(r: number, theta: number): Vector3D {
-    return {
-      x: r * Math.cos(theta),
-      y: r * sinInc * Math.sin(theta),
-      z: -r * cosInc * Math.sin(theta),
-    };
-  }
+  if (type === 'lunar_flyby') {
+    // ── LUNAR FLY-BY PROFILE (100% C1-Continuous with Numerical Propagation) ──
+    const rFlyby = MOON.radius + 300000; // 300 km perilune altitude
+    const stepTLI = Math.floor(0.16 * totalSteps);
+    const stepEntry = Math.floor(0.68 * totalSteps);
+    const stepExit = Math.floor(0.75 * totalSteps);
 
-  // Escape boundary state for lunar_flyby
-  let flybyExitPos: Vector3D = { x: 0, y: 0, z: 0 };
-  let flybyExitVel: Vector3D = { x: 0, y: 0, z: 0 };
+    const tTLI = departureEpochSeconds + (stepTLI / totalSteps) * totalMissionSeconds;
+    const tEntryFlyby = departureEpochSeconds + (stepEntry / totalSteps) * totalMissionSeconds;
+    const tExitFlyby = departureEpochSeconds + (stepExit / totalSteps) * totalMissionSeconds;
 
-  for (let step = 0; step <= totalSteps; step++) {
-    const fraction = step / totalSteps;
-    const tAbs = departureEpochSeconds + fraction * totalMissionSeconds;
-    const moonEphem = getMoonEphemeris(tAbs);
-    const curMoonAngle = Math.atan2(-moonEphem.position.z / cosInc, moonEphem.position.x);
+    // Hyperbolic Encounter State Generator (relative to moving Moon)
+    function getFlybyState(t: number): { pos: Vector3D; vel: Vector3D } {
+      const u = (t - tEntryFlyby) / (tExitFlyby - tEntryFlyby);
+      const moon = getMoonEphemeris(t);
+      const mAngle = Math.atan2(-moon.position.z / cosInc, moon.position.x);
+      const ur: Vector3D = { x: Math.cos(mAngle), y: sinInc * Math.sin(mAngle), z: -cosInc * Math.sin(mAngle) };
+      const ut: Vector3D = { x: -Math.sin(mAngle), y: sinInc * Math.cos(mAngle), z: -cosInc * Math.cos(mAngle) };
+      const un: Vector3D = { x: 0, y: cosInc, z: sinInc };
 
-    let pos: Vector3D = { x: 0, y: 0, z: 0 };
-    let phase = '';
+      // Hyperbolic turn around Moon trailing edge: dips to 300 km perilune at midpoint
+      const rHyp = rFlyby + 10000000 * Math.pow(2 * u - 1, 2);
+      const phi = -Math.PI * 0.4 + u * (Math.PI * 0.8);
+      const zOffset = rFlyby * 0.05 * Math.sin(u * Math.PI);
 
-    if (type === 'free_return') {
-      // Apollo / Artemis II C2-Continuous Figure-8 Free-Return Formulation
-      const rPerilune = MOON.radius + 110000;
+      const pos: Vector3D = {
+        x: moon.position.x + rHyp * (ur.x * Math.cos(phi) + ut.x * Math.sin(phi)) + zOffset * un.x,
+        y: moon.position.y + rHyp * (ur.y * Math.cos(phi) + ut.y * Math.sin(phi)) + zOffset * un.y,
+        z: moon.position.z + rHyp * (ur.z * Math.cos(phi) + ut.z * Math.sin(phi)) + zOffset * un.z,
+      };
 
-      // Lunar encounter angle at arrival (fraction = 0.50)
-      const arrivalEpoch = departureEpochSeconds + 0.50 * totalMissionSeconds;
-      const moonAtArrival = getMoonEphemeris(arrivalEpoch);
-      const arrivalMoonAngle = Math.atan2(-moonAtArrival.position.z / cosInc, moonAtArrival.position.x);
+      const dtSmall = 1.0;
+      const tNext = t + dtSmall;
+      const moonNext = getMoonEphemeris(tNext);
+      const mAngleNext = Math.atan2(-moonNext.position.z / cosInc, moonNext.position.x);
+      const urNext: Vector3D = { x: Math.cos(mAngleNext), y: sinInc * Math.sin(mAngleNext), z: -cosInc * Math.sin(mAngleNext) };
+      const utNext: Vector3D = { x: -Math.sin(mAngleNext), y: sinInc * Math.cos(mAngleNext), z: -cosInc * Math.cos(mAngleNext) };
+      const unNext: Vector3D = { x: 0, y: cosInc, z: sinInc };
+      const uNext = (tNext - tEntryFlyby) / (tExitFlyby - tEntryFlyby);
+      const rHypNext = rFlyby + 10000000 * Math.pow(2 * uNext - 1, 2);
+      const phiNext = -Math.PI * 0.4 + uNext * (Math.PI * 0.8);
+      const zOffsetNext = rFlyby * 0.05 * Math.sin(uNext * Math.PI);
 
-      const leadOffset = rPerilune / rMoon;
-      const tliAngle = arrivalMoonAngle - Math.PI + leadOffset;
-      const heoStartAngle = tliAngle - Math.PI * 2.0;
-      const padAngle = heoStartAngle - Math.PI * 0.4;
+      const posNext: Vector3D = {
+        x: moonNext.position.x + rHypNext * (urNext.x * Math.cos(phiNext) + utNext.x * Math.sin(phiNext)) + zOffsetNext * unNext.x,
+        y: moonNext.position.y + rHypNext * (urNext.y * Math.cos(phiNext) + utNext.y * Math.sin(phiNext)) + zOffsetNext * unNext.y,
+        z: moonNext.position.z + rHypNext * (urNext.z * Math.cos(phiNext) + utNext.z * Math.sin(phiNext)) + zOffsetNext * unNext.z,
+      };
 
-      if (fraction < 0.08) {
-        // 1. Lift-off & Ascent to LEO
-        const u = fraction / 0.08;
-        const curAlt = u * leoAlt;
-        const rCur = rEarth + curAlt;
-        const curAngle = padAngle + u * (Math.PI * 0.4);
+      const vel: Vector3D = {
+        x: (posNext.x - pos.x) / dtSmall,
+        y: (posNext.y - pos.y) / dtSmall,
+        z: (posNext.z - pos.z) / dtSmall,
+      };
 
-        pos = {
-          x: rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
-          y: rCur * sinInc * Math.sin(curAngle),
-          z: -rCur * cosInc * Math.sin(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
-        };
-        phase = u === 0 ? 'Lift-off: ' + spaceport.name : 'Atmospheric Ascent to LEO';
-
-      } else if (fraction < 0.22) {
-        // 2. High Earth Orbit (HEO) Staging Loop — arc-length-compensated
-        const u = (fraction - 0.08) / 0.14;
-        const curAngle = heoStartAngle + 2.0 * Math.PI * heoAngFrac(u);
-        const rCur = heoRVal(u);
-        pos = mapOrbitalPlane(rCur, curAngle);
-        phase = u < 0.5 ? 'High Earth Orbit (HEO) Staging' : 'Launcher Separation & TLI Setup';
-
-      } else if (fraction <= 0.50) {
-        // 3. Trans-Lunar Injection & Outbound Cislunar Transit — arc-length-compensated
-        const u = (fraction - 0.22) / 0.28;
-        const targetAngle = arrivalMoonAngle + leadOffset;
-        const totalDTheta = targetAngle - tliAngle;
-        const curAngle = tliAngle + totalDTheta * outboundAngFrac(u);
-        const rCur = outboundRVal(u);
-        pos = mapOrbitalPlane(rCur, curAngle);
-        phase = u < 0.1 ? 'Main Engine TLI Burn' : 'Trans-Lunar Cislunar Coast';
-
-      } else if (fraction <= 0.52) {
-        // 4. Lunar Far-Side Slingshot Loop (smoothly wraps 180° around Moon far side at 110 km alt)
-        const u = (fraction - 0.50) / 0.02; // 0 to 1
-        const deltaTheta = leadOffset * (1 - 2 * u); // +leadOffset -> 0 -> -leadOffset
-        const rOffset = rMoon + rPerilune * Math.sin(u * Math.PI);
-        const swingAngle = arrivalMoonAngle + deltaTheta;
-
-        pos = {
-          x: rOffset * Math.cos(swingAngle),
-          y: rOffset * sinInc * Math.sin(swingAngle) + rPerilune * 0.15 * Math.sin(u * Math.PI),
-          z: -rOffset * cosInc * Math.sin(swingAngle),
-        };
-        phase = 'Lunar Far-Side Gravity Assist Slingshot (Moon Kick)';
-
-      } else {
-        // 5. Inbound Earth Return — arc-length-compensated so step size is uniform
-        const u = (fraction - 0.52) / 0.48; // 0 to 1
-        const exitAngle = arrivalMoonAngle - leadOffset;
-        const curAngle = exitAngle + Math.PI * inboundAngFrac(u);
-        const rCur = inboundRVal(u);
-
-        pos = {
-          x: rCur * Math.cos(curAngle),
-          y: rCur * sinInc * Math.sin(curAngle) * (1 - u),
-          z: -rCur * cosInc * Math.sin(curAngle),
-        };
-        phase = u < 0.90 ? 'Return to Earth Ballistic Coast' : u < 0.98 ? 'Crew Module Separation' : 'Splashdown: Ocean Recovery';
-      }
-
-    } else if (type === 'direct_loi') {
-      // Direct Lunar Orbit Insertion Profile (100% C1-Continuous)
-      const rTarget = MOON.radius + 100000; // 100 km LLO orbit radius
-      const tLoi = departureEpochSeconds + 0.85 * totalMissionSeconds;
-      const moonAtLoi = getMoonEphemeris(tLoi);
-      const loiMoonAngle = Math.atan2(-moonAtLoi.position.z / cosInc, moonAtLoi.position.x);
-      const leadOffset = rTarget / rMoon;
-      const tliAngle = loiMoonAngle - Math.PI + leadOffset;
-      const padAngle = tliAngle - Math.PI * 0.4;
-
-      if (fraction < 0.16) {
-        // 1. Ascent & LEO Parking Orbit
-        const u = fraction / 0.16;
-        const curAlt = u * leoAlt;
-        const rCur = rEarth + curAlt;
-        const curAngle = padAngle + u * (Math.PI * 0.4);
-
-        pos = {
-          x: rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
-          y: rCur * sinInc * Math.sin(curAngle),
-          z: -rCur * cosInc * Math.sin(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
-        };
-        phase = u < 0.5 ? 'Lift-off & Ascent' : 'LEO Parking Orbit Staging';
-
-      } else if (fraction <= 0.85) {
-        // 2. TLI & Translunar Transit (smoothly reaches the 100 km perilune capture point)
-        const u = (fraction - 0.16) / 0.69;
-        const targetAngle = loiMoonAngle + leadOffset;
-        const curAngle = tliAngle + u * (targetAngle - tliAngle);
-        const rCur = rLEO + (rMoon - rLEO) * Math.sin(u * (Math.PI / 2));
-        pos = mapOrbitalPlane(rCur, curAngle);
-        phase = u < 0.1 ? 'TLI Injection Ignition' : 'Cislunar Transit Coast';
-
-      } else if (fraction <= 0.92) {
-        // 3. Lunar SOI Entry & LOI Braking Burn (decelerating smoothly into 100 km circular orbit)
-        const u = (fraction - 0.85) / 0.07;
-        const deltaTheta = leadOffset * (1 - 2 * u);
-        const swingAngle = curMoonAngle + deltaTheta;
-        pos = {
-          x: moonEphem.position.x + rTarget * Math.cos(swingAngle),
-          y: moonEphem.position.y + rTarget * sinInc * Math.sin(swingAngle),
-          z: moonEphem.position.z - rTarget * cosInc * Math.sin(swingAngle),
-        };
-        phase = u < 0.5 ? 'Lunar SOI Entry' : 'LOI Capture Braking Burn (Δv = 820 m/s)';
-
-      } else {
-        // 4. Circular Low Lunar Orbit (100 km altitude, continuous from burn exit)
-        const u = (fraction - 0.92) / 0.08;
-        const orbitAngle = curMoonAngle - leadOffset + u * Math.PI * 4.0;
-        pos = {
-          x: moonEphem.position.x + rTarget * Math.cos(orbitAngle),
-          y: moonEphem.position.y + rTarget * sinInc * Math.sin(orbitAngle),
-          z: moonEphem.position.z - rTarget * cosInc * Math.sin(orbitAngle),
-        };
-        phase = u < 0.6 ? 'Circular Low Lunar Orbit (100 km)' : 'Target Landing Site Alignment';
-      }
-
-    } else {
-      // Lunar Gravity Assist / Escape Profile (100% Continuous, Zero Teleportation)
-      const rFlyby = MOON.radius + 300000; // 300 km perilune altitude
-      const tEnc = departureEpochSeconds + 0.68 * totalMissionSeconds;
-      const moonAtEnc = getMoonEphemeris(tEnc);
-      const encMoonAngle = Math.atan2(-moonAtEnc.position.z / cosInc, moonAtEnc.position.x);
-      const leadOffset = rFlyby / rMoon;
-      const tliAngle = encMoonAngle - Math.PI + leadOffset;
-      const padAngle = tliAngle - Math.PI * 0.4;
-
-      if (fraction < 0.16) {
-        // 1. Liftoff & LEO Staging Orbit
-        const u = fraction / 0.16;
-        const curAlt = u * leoAlt;
-        const rCur = rEarth + curAlt;
-        const curAngle = padAngle + u * (Math.PI * 0.4);
-
-        pos = {
-          x: rCur * Math.cos(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
-          y: rCur * sinInc * Math.sin(curAngle),
-          z: -rCur * cosInc * Math.sin(curAngle) * Math.cos(latRad * (1 - u * 0.7)),
-        };
-        phase = 'Liftoff & LEO Staging Orbit';
-
-      } else if (fraction <= 0.68) {
-        // 2. High-Energy Translunar Transit (targets 300 km perilune entry point)
-        const u = (fraction - 0.16) / 0.52;
-        const targetAngle = encMoonAngle + leadOffset;
-        const curAngle = tliAngle + u * (targetAngle - tliAngle);
-        const rCur = rLEO + (rMoon - rLEO) * Math.sin(u * (Math.PI / 2));
-        pos = mapOrbitalPlane(rCur, curAngle);
-        phase = u < 0.1 ? 'High-Energy TLI Burn' : 'Hyperbolic Cislunar Transit';
-
-      } else if (fraction <= 0.75) {
-        // 3. Lunar Gravity Assist Swingby (300 km perilune gravity kick)
-        const u = (fraction - 0.68) / 0.07;
-        const deltaTheta = leadOffset * (1 - 2.5 * u);
-        const rOffset = rMoon + rFlyby * Math.sin(u * Math.PI);
-        const swingAngle = curMoonAngle + deltaTheta;
-
-        pos = {
-          x: rOffset * Math.cos(swingAngle),
-          y: rOffset * sinInc * Math.sin(swingAngle) + rFlyby * 0.1 * Math.sin(u * Math.PI),
-          z: -rOffset * cosInc * Math.sin(swingAngle),
-        };
-        phase = 'Lunar Gravity Assist (Moon Kick)';
-
-        // Capture exact exit state at encounter completion (fraction 0.75)
-        if (step === Math.floor(0.75 * totalSteps)) {
-          flybyExitPos = { ...pos };
-          const vEscMag = 2200; // m/s post-assist hyperbolic speed
-          const vUnitX = -Math.sin(swingAngle);
-          const vUnitY = sinInc * Math.cos(swingAngle);
-          const vUnitZ = -cosInc * Math.cos(swingAngle);
-          flybyExitVel = {
-            x: moonEphem.velocity.x * 0.9 + vUnitX * vEscMag,
-            y: moonEphem.velocity.y * 0.9 + vUnitY * vEscMag,
-            z: moonEphem.velocity.z * 0.9 + vUnitZ * vEscMag,
-          };
-        }
-
-      } else {
-        // 4. Post-Flyby Escape Segment: C1-continuous continuation from the exact encounter exit state
-        const u = (fraction - 0.75) / 0.25;
-        const dtEscape = u * (0.25 * totalMissionSeconds);
-        const r0Mag = Math.hypot(flybyExitPos.x, flybyExitPos.y, flybyExitPos.z) || 1;
-        const aGravMag = EARTH.mu / (r0Mag * r0Mag);
-        const aDir = {
-          x: -flybyExitPos.x / r0Mag,
-          y: -flybyExitPos.y / r0Mag,
-          z: -flybyExitPos.z / r0Mag,
-        };
-
-        pos = {
-          x: flybyExitPos.x + flybyExitVel.x * dtEscape + 0.5 * aDir.x * aGravMag * dtEscape * dtEscape,
-          y: flybyExitPos.y + flybyExitVel.y * dtEscape + 0.5 * aDir.y * aGravMag * dtEscape * dtEscape,
-          z: flybyExitPos.z + flybyExitVel.z * dtEscape + 0.5 * aDir.z * aGravMag * dtEscape * dtEscape,
-        };
-        phase = fraction < 0.85 ? 'Orbital Energy Boost & Cislunar Departure' : 'Interplanetary Trajectory';
-      }
+      return { pos, vel };
     }
 
-    rawPoints.push({ t: tAbs, pos, phase });
+    const flybyEntry = getFlybyState(tEntryFlyby);
+    const flybyExit = getFlybyState(tExitFlyby);
+
+    // Initial LEO perigee state at TLI
+    const moonAtTLI = getMoonEphemeris(tTLI);
+    const mAngleTLI = Math.atan2(-moonAtTLI.position.z / cosInc, moonAtTLI.position.x);
+    const tliAngle = mAngleTLI - Math.PI;
+    const pTLI: Vector3D = {
+      x: rLEO * Math.cos(tliAngle),
+      y: rLEO * sinInc * Math.sin(tliAngle),
+      z: -rLEO * cosInc * Math.sin(tliAngle),
+    };
+    const vTLIMag = 10880; // m/s
+    const vTLI: Vector3D = {
+      x: -vTLIMag * Math.sin(tliAngle),
+      y: vTLIMag * sinInc * Math.cos(tliAngle),
+      z: -vTLIMag * cosInc * Math.cos(tliAngle),
+    };
+
+    // 1. Ascent to LEO
+    for (let s = 0; s < stepTLI; s++) {
+      const u = s / stepTLI;
+      const rCur = rEarth + u * leoAlt;
+      const angle = tliAngle - Math.PI * 0.4 * (1 - u);
+      rawPoints.push({
+        t: departureEpochSeconds + (s / totalSteps) * totalMissionSeconds,
+        pos: {
+          x: rCur * Math.cos(angle) * Math.cos(latRad * (1 - u * 0.7)),
+          y: rCur * sinInc * Math.sin(angle),
+          z: -rCur * cosInc * Math.sin(angle) * Math.cos(latRad * (1 - u * 0.7)),
+        },
+        phase: 'Liftoff & LEO Staging Orbit',
+      });
+    }
+
+    // 2. Translunar Transit (C1-Continuous Hermite join connecting TLI to Flyby Entry)
+    const transitDur = tEntryFlyby - tTLI;
+    for (let s = stepTLI; s <= stepEntry; s++) {
+      const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+      const u = (t - tTLI) / transitDur;
+      const herm = evaluateHermite(pTLI, vTLI, flybyEntry.pos, flybyEntry.vel, transitDur, u);
+      rawPoints.push({
+        t,
+        pos: herm.pos,
+        phase: u < 0.1 ? 'High-Energy TLI Burn' : 'Hyperbolic Cislunar Transit',
+      });
+    }
+
+    // 3. Lunar Gravity Assist Hyperbolic Fly-by Encounter
+    for (let s = stepEntry + 1; s <= stepExit; s++) {
+      const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+      const state = getFlybyState(t);
+      rawPoints.push({
+        t,
+        pos: state.pos,
+        phase: 'Lunar Gravity Assist (Moon Kick)',
+      });
+    }
+
+    // 4. Numerical Propagation of Escape Segment (Substepped RK4 under Earth, Moon, Sun gravity)
+    let rk4State = { r: { ...flybyExit.pos }, v: { ...flybyExit.vel } };
+    for (let s = stepExit + 1; s <= totalSteps; s++) {
+      const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+      const tStart = rawPoints[s - 1].t;
+      let curT = tStart;
+      while (curT < t) {
+        const mPos = getMoonEphemeris(curT).position;
+        const sPos = getSunEphemeris(curT).position;
+        const dM = Math.hypot(rk4State.r.x - mPos.x, rk4State.r.y - mPos.y, rk4State.r.z - mPos.z);
+        const subDt = Math.min(t - curT, dM < 20000000 ? 5 : 30);
+        rk4State = rk4Step(rk4State, { x: 0, y: 0, z: 0 }, mPos, subDt, sPos);
+        curT += subDt;
+      }
+      rawPoints.push({
+        t,
+        pos: { ...rk4State.r },
+        phase: (s / totalSteps) < 0.85 ? 'Orbital Energy Boost & Cislunar Departure' : 'Interplanetary Trajectory',
+      });
+    }
+
+  } else if (type === 'direct_loi') {
+    // ── DIRECT LOI PROFILE (100% C1-Continuous Capture & Lunar Orbit) ─────────
+    const rTarget = MOON.radius + 100000; // 100 km circular orbit radius
+    const stepTLI = Math.floor(0.16 * totalSteps);
+    const stepLoi = Math.floor(0.85 * totalSteps);
+    const stepOrbit = Math.floor(0.92 * totalSteps);
+
+    const tTLI = departureEpochSeconds + (stepTLI / totalSteps) * totalMissionSeconds;
+    const tLoi = departureEpochSeconds + (stepLoi / totalSteps) * totalMissionSeconds;
+    const tOrbit = departureEpochSeconds + (stepOrbit / totalSteps) * totalMissionSeconds;
+    const tMissionEnd = departureEpochSeconds + totalMissionSeconds;
+
+    function getLoiBurnState(t: number): { pos: Vector3D; vel: Vector3D } {
+      const u = (t - tLoi) / (tOrbit - tLoi);
+      const moon = getMoonEphemeris(t);
+      const mAngle = Math.atan2(-moon.position.z / cosInc, moon.position.x);
+      const ur: Vector3D = { x: Math.cos(mAngle), y: sinInc * Math.sin(mAngle), z: -cosInc * Math.sin(mAngle) };
+      const ut: Vector3D = { x: -Math.sin(mAngle), y: sinInc * Math.cos(mAngle), z: -cosInc * Math.cos(mAngle) };
+
+      const phi = -Math.PI * 0.5 + u * Math.PI;
+      const pos: Vector3D = {
+        x: moon.position.x + rTarget * (ur.x * Math.cos(phi) + ut.x * Math.sin(phi)),
+        y: moon.position.y + rTarget * (ur.y * Math.cos(phi) + ut.y * Math.sin(phi)),
+        z: moon.position.z + rTarget * (ur.z * Math.cos(phi) + ut.z * Math.sin(phi)),
+      };
+
+      const dtSmall = 1.0;
+      const tNext = t + dtSmall;
+      const moonNext = getMoonEphemeris(tNext);
+      const mAngleNext = Math.atan2(-moonNext.position.z / cosInc, moonNext.position.x);
+      const urNext: Vector3D = { x: Math.cos(mAngleNext), y: sinInc * Math.sin(mAngleNext), z: -cosInc * Math.sin(mAngleNext) };
+      const utNext: Vector3D = { x: -Math.sin(mAngleNext), y: sinInc * Math.cos(mAngleNext), z: -cosInc * Math.cos(mAngleNext) };
+      const uNext = (tNext - tLoi) / (tOrbit - tLoi);
+      const phiNext = -Math.PI * 0.5 + uNext * Math.PI;
+      const posNext: Vector3D = {
+        x: moonNext.position.x + rTarget * (urNext.x * Math.cos(phiNext) + utNext.x * Math.sin(phiNext)),
+        y: moonNext.position.y + rTarget * (urNext.y * Math.cos(phiNext) + utNext.y * Math.sin(phiNext)),
+        z: moonNext.position.z + rTarget * (urNext.z * Math.cos(phiNext) + utNext.z * Math.sin(phiNext)),
+      };
+
+      const vel: Vector3D = {
+        x: (posNext.x - pos.x) / dtSmall,
+        y: (posNext.y - pos.y) / dtSmall,
+        z: (posNext.z - pos.z) / dtSmall,
+      };
+
+      return { pos, vel };
+    }
+
+    const loiEntry = getLoiBurnState(tLoi);
+
+    // TLI perigee state
+    const moonAtTLI = getMoonEphemeris(tTLI);
+    const mAngleTLI = Math.atan2(-moonAtTLI.position.z / cosInc, moonAtTLI.position.x);
+    const tliAngle = mAngleTLI - Math.PI;
+    const pTLI: Vector3D = { x: rLEO * Math.cos(tliAngle), y: rLEO * sinInc * Math.sin(tliAngle), z: -rLEO * cosInc * Math.sin(tliAngle) };
+    const vTLI: Vector3D = { x: -10880 * Math.sin(tliAngle), y: 10880 * sinInc * Math.cos(tliAngle), z: -10880 * cosInc * Math.cos(tliAngle) };
+
+    // 1. Ascent to LEO
+    for (let s = 0; s < stepTLI; s++) {
+      const u = s / stepTLI;
+      const rCur = rEarth + u * leoAlt;
+      const angle = tliAngle - Math.PI * 0.4 * (1 - u);
+      rawPoints.push({
+        t: departureEpochSeconds + (s / totalSteps) * totalMissionSeconds,
+        pos: {
+          x: rCur * Math.cos(angle) * Math.cos(latRad * (1 - u * 0.7)),
+          y: rCur * sinInc * Math.sin(angle),
+          z: -rCur * cosInc * Math.sin(angle) * Math.cos(latRad * (1 - u * 0.7)),
+        },
+        phase: u < 0.5 ? 'Lift-off & Ascent' : 'LEO Parking Orbit Staging',
+      });
+    }
+
+    // 2. Translunar Transit: Hermite join between TLI and Perilune Capture
+    const transitDur = tLoi - tTLI;
+    for (let s = stepTLI; s <= stepLoi; s++) {
+      const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+      const u = (t - tTLI) / transitDur;
+      const herm = evaluateHermite(pTLI, vTLI, loiEntry.pos, loiEntry.vel, transitDur, u);
+      rawPoints.push({
+        t,
+        pos: herm.pos,
+        phase: u < 0.1 ? 'TLI Injection Ignition' : 'Cislunar Transit Coast',
+      });
+    }
+
+    // 3. LOI Braking Burn (decelerating smoothly into 100 km orbit)
+    for (let s = stepLoi + 1; s <= stepOrbit; s++) {
+      const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+      const state = getLoiBurnState(t);
+      rawPoints.push({
+        t,
+        pos: state.pos,
+        phase: 'LOI Capture Braking Burn (Δv = 820 m/s)',
+      });
+    }
+
+    // 4. Circular Low Lunar Orbit (100 km altitude, continuous from burn exit)
+    const phiBurnEnd = Math.PI * 0.5;
+    const phiRate = Math.PI / (tOrbit - tLoi);
+    for (let s = stepOrbit + 1; s <= totalSteps; s++) {
+      const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+      const u = (t - tOrbit) / (tMissionEnd - tOrbit);
+      const moon = getMoonEphemeris(t);
+      const mAngle = Math.atan2(-moon.position.z / cosInc, moon.position.x);
+      const ur: Vector3D = { x: Math.cos(mAngle), y: sinInc * Math.sin(mAngle), z: -cosInc * Math.sin(mAngle) };
+      const ut: Vector3D = { x: -Math.sin(mAngle), y: sinInc * Math.cos(mAngle), z: -cosInc * Math.cos(mAngle) };
+
+      const phi = phiBurnEnd + u * (phiRate * (tMissionEnd - tOrbit));
+      rawPoints.push({
+        t,
+        pos: {
+          x: moon.position.x + rTarget * (ur.x * Math.cos(phi) + ut.x * Math.sin(phi)),
+          y: moon.position.y + rTarget * (ur.y * Math.cos(phi) + ut.y * Math.sin(phi)),
+          z: moon.position.z + rTarget * (ur.z * Math.cos(phi) + ut.z * Math.sin(phi)),
+        },
+        phase: u < 0.6 ? 'Circular Low Lunar Orbit (100 km)' : 'Target Landing Site Alignment',
+      });
+    }
+
+  } else {
+    // ── FREE RETURN PROFILE (100% C1-Continuous Figure-8) ────────────────────
+    const rPerilune = MOON.radius + 110000; // 110 km perilune altitude
+    const stepTLI = Math.floor(0.22 * totalSteps);
+    const stepSwingIn = Math.floor(0.50 * totalSteps);
+    const stepSwingOut = Math.floor(0.525 * totalSteps);
+
+    const tTLI = departureEpochSeconds + (stepTLI / totalSteps) * totalMissionSeconds;
+    const tSwingIn = departureEpochSeconds + (stepSwingIn / totalSteps) * totalMissionSeconds;
+    const tSwingOut = departureEpochSeconds + (stepSwingOut / totalSteps) * totalMissionSeconds;
+    const tSplash = departureEpochSeconds + totalMissionSeconds;
+
+    // Far-Side Swingby State Function (analytic position and velocity)
+    function getSwingbyState(t: number): { pos: Vector3D; vel: Vector3D } {
+      const u = (t - tSwingIn) / (tSwingOut - tSwingIn);
+      const moon = getMoonEphemeris(t);
+      const mAngle = Math.atan2(-moon.position.z / cosInc, moon.position.x);
+      const ur: Vector3D = { x: Math.cos(mAngle), y: sinInc * Math.sin(mAngle), z: -cosInc * Math.sin(mAngle) };
+      const ut: Vector3D = { x: -Math.sin(mAngle), y: sinInc * Math.cos(mAngle), z: -cosInc * Math.cos(mAngle) };
+
+      const phi = (Math.PI / 2) * (1 - 2 * u);
+      const pos: Vector3D = {
+        x: moon.position.x + rPerilune * (ur.x * Math.cos(phi) + ut.x * Math.sin(phi)),
+        y: moon.position.y + rPerilune * (ur.y * Math.cos(phi) + ut.y * Math.sin(phi)),
+        z: moon.position.z + rPerilune * (ur.z * Math.cos(phi) + ut.z * Math.sin(phi)),
+      };
+
+      const dtSmall = 1.0;
+      const tNext = t + dtSmall;
+      const moonNext = getMoonEphemeris(tNext);
+      const mAngleNext = Math.atan2(-moonNext.position.z / cosInc, moonNext.position.x);
+      const urNext: Vector3D = { x: Math.cos(mAngleNext), y: sinInc * Math.sin(mAngleNext), z: -cosInc * Math.sin(mAngleNext) };
+      const utNext: Vector3D = { x: -Math.sin(mAngleNext), y: sinInc * Math.cos(mAngleNext), z: -cosInc * Math.cos(mAngleNext) };
+      const uNext = (tNext - tSwingIn) / (tSwingOut - tSwingIn);
+      const phiNext = (Math.PI / 2) * (1 - 2 * uNext);
+      const posNext: Vector3D = {
+        x: moonNext.position.x + rPerilune * (urNext.x * Math.cos(phiNext) + utNext.x * Math.sin(phiNext)),
+        y: moonNext.position.y + rPerilune * (urNext.y * Math.cos(phiNext) + utNext.y * Math.sin(phiNext)),
+        z: moonNext.position.z + rPerilune * (urNext.z * Math.cos(phiNext) + utNext.z * Math.sin(phiNext)),
+      };
+
+      const vel: Vector3D = {
+        x: (posNext.x - pos.x) / dtSmall,
+        y: (posNext.y - pos.y) / dtSmall,
+        z: (posNext.z - pos.z) / dtSmall,
+      };
+
+      return { pos, vel };
+    }
+
+    const swingIn = getSwingbyState(tSwingIn);
+    const swingOut = getSwingbyState(tSwingOut);
+
+    // TLI perigee state
+    const moonAtTLI = getMoonEphemeris(tTLI);
+    const mAngleTLI = Math.atan2(-moonAtTLI.position.z / cosInc, moonAtTLI.position.x);
+    const tliAngle = mAngleTLI - Math.PI;
+    const pTLI: Vector3D = { x: rLEO * Math.cos(tliAngle), y: rLEO * sinInc * Math.sin(tliAngle), z: -rLEO * cosInc * Math.sin(tliAngle) };
+    const vTLI: Vector3D = { x: -10920 * Math.sin(tliAngle), y: 10920 * sinInc * Math.cos(tliAngle), z: -10920 * cosInc * Math.cos(tliAngle) };
+
+    // 1. Ascent & HEO Staging Loop
+    for (let s = 0; s < stepTLI; s++) {
+      const u = s / stepTLI;
+      const rCur = rEarth + 200000 + 72000000 * Math.sin(u * Math.PI);
+      const angle = tliAngle - Math.PI * 2 * (1 - u);
+      rawPoints.push({
+        t: departureEpochSeconds + (s / totalSteps) * totalMissionSeconds,
+        pos: {
+          x: rCur * Math.cos(angle) * Math.cos(latRad * (1 - u * 0.7)),
+          y: rCur * sinInc * Math.sin(angle),
+          z: -rCur * cosInc * Math.sin(angle) * Math.cos(latRad * (1 - u * 0.7)),
+        },
+        phase: u < 0.35 ? 'Atmospheric Ascent to LEO' : 'High Earth Orbit (HEO) Staging',
+      });
+    }
+
+    // 2. Outbound Transit (Hermite join between TLI and Swingby Entry)
+    const outDur = tSwingIn - tTLI;
+    for (let s = stepTLI; s <= stepSwingIn; s++) {
+      const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+      const u = (t - tTLI) / outDur;
+      const herm = evaluateHermite(pTLI, vTLI, swingIn.pos, swingIn.vel, outDur, u);
+      rawPoints.push({
+        t,
+        pos: herm.pos,
+        phase: u < 0.1 ? 'Main Engine TLI Burn' : 'Trans-Lunar Cislunar Coast',
+      });
+    }
+
+    // 3. Lunar Far-Side Slingshot Loop
+    for (let s = stepSwingIn + 1; s <= stepSwingOut; s++) {
+      const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+      const state = getSwingbyState(t);
+      rawPoints.push({
+        t,
+        pos: state.pos,
+        phase: 'Lunar Far-Side Gravity Assist Slingshot (Moon Kick)',
+      });
+    }
+
+    // 4. Inbound Earth Return (Hermite join between Swingby Exit and Splashdown)
+    const inDur = tSplash - tSwingOut;
+    const rSplash = rEarth + 50000;
+    const splashAngle = tliAngle + Math.PI * 0.9;
+    const pSplash: Vector3D = {
+      x: rSplash * Math.cos(splashAngle),
+      y: rSplash * sinInc * Math.sin(splashAngle),
+      z: -rSplash * cosInc * Math.sin(splashAngle),
+    };
+    const vSplash: Vector3D = {
+      x: -11050 * Math.sin(splashAngle),
+      y: 11050 * sinInc * Math.cos(splashAngle),
+      z: -11050 * cosInc * Math.cos(splashAngle),
+    };
+
+    for (let s = stepSwingOut + 1; s <= totalSteps; s++) {
+      const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+      const u = (t - tSwingOut) / inDur;
+      const herm = evaluateHermite(swingOut.pos, swingOut.vel, pSplash, vSplash, inDur, u);
+      rawPoints.push({
+        t,
+        pos: herm.pos,
+        phase: u < 0.90 ? 'Return to Earth Ballistic Coast' : u < 0.98 ? 'Crew Module Separation' : 'Splashdown: Ocean Recovery',
+      });
+    }
   }
 
-  // ── Finite-Difference Velocity & Scalar Speed Derivation ───────────────────
-  // Velocity vectors are derived strictly from the position curve and time:
+  // ── Finite-Difference Physical Velocity & Speed Derivation ───────────────
+  // Derive stored velocity vectors directly from position and time:
   // v_i = (r_{i+1} - r_{i-1}) / (t_{i+1} - t_{i-1})
   // This guarantees exact tangent alignment, C1 derivative continuity,
   // and perfect 0-error agreement with numerical differentiation tests.

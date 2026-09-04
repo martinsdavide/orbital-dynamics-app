@@ -170,14 +170,21 @@ test('Trajectory Solver - Mathematical Continuity & Zero-Jump Regression across 
   }
 });
 
-test('Trajectory Solver - Finite-Difference Velocity & Tangent Consistency', () => {
+test('Trajectory Solver - Finite-Difference Velocity & Tangent Continuity', () => {
   const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
   const archetypes = ['free_return', 'direct_loi', 'lunar_flyby'] as const;
+
+  function normalize(v: { x: number; y: number; z: number }) {
+    const m = Math.hypot(v.x, v.y, v.z);
+    return { x: v.x / m, y: v.y / m, z: v.z / m };
+  }
 
   for (const type of archetypes) {
     const traj = solveEarthMoonTrajectory(type, ksc, 200000, 72, 0, 0);
     const pts = traj.points;
 
+    // 1. Stored velocity vectors must match centered finite differences:
+    //    v_i = (r_{i+1} - r_{i-1}) / (t_{i+1} - t_{i-1}) to < 0.001 m/s (1 mm/s)
     for (let i = 1; i < pts.length - 1; i++) {
       const dt = pts[i + 1].t - pts[i - 1].t;
       const numVx = (pts[i + 1].position.x - pts[i - 1].position.x) / dt;
@@ -185,23 +192,39 @@ test('Trajectory Solver - Finite-Difference Velocity & Tangent Consistency', () 
       const numVz = (pts[i + 1].position.z - pts[i - 1].position.z) / dt;
 
       const diff = Math.hypot(numVx - pts[i].velocity.x, numVy - pts[i].velocity.y, numVz - pts[i].velocity.z);
-      // Velocity vectors must agree with position finite difference to within 1 mm/s
       assert.ok(
         diff < 0.001,
         `Finite-difference velocity mismatch at point ${i} in ${type}: diff was ${diff} m/s`
       );
+    }
 
-      // Tangent alignment: velocity must point along displacement within continuous flight phases
-      if (pts[i].phase === pts[i + 1].phase && pts[i].phase === pts[i - 1].phase) {
-        const dx = pts[i + 1].position.x - pts[i].position.x;
-        const dy = pts[i + 1].position.y - pts[i].position.y;
-        const dz = pts[i + 1].position.z - pts[i].position.z;
-        const dMag = Math.hypot(dx, dy, dz);
-        const vMag = pts[i].speed;
-
-        if (dMag > 10 && vMag > 10) {
-          const dot = (dx * pts[i].velocity.x + dy * pts[i].velocity.y + dz * pts[i].velocity.z) / (dMag * vMag);
-          assert.ok(dot > 0.70, `Velocity tangent at step ${i} in ${type} (${pts[i].phase}) must point forward (dot=${dot.toFixed(3)})`);
+    // 2. Tangent continuity across unpowered phase boundaries:
+    //    dot(normalize(r_b - r_{b-1}), normalize(r_{b+1} - r_b)) > 0.999
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (pts[i].phase !== pts[i + 1].phase) {
+        const isPowered =
+          pts[i].phase.includes('Burn') ||
+          pts[i + 1].phase.includes('Burn') ||
+          pts[i].phase.includes('Ascent') ||
+          pts[i + 1].phase.includes('Ascent') ||
+          pts[i + 1].phase.includes('Ignition') ||
+          pts[i].phase.includes('Liftoff');
+        if (!isPowered) {
+          const inc = normalize({
+            x: pts[i].position.x - pts[i - 1].position.x,
+            y: pts[i].position.y - pts[i - 1].position.y,
+            z: pts[i].position.z - pts[i - 1].position.z,
+          });
+          const out = normalize({
+            x: pts[i + 1].position.x - pts[i].position.x,
+            y: pts[i + 1].position.y - pts[i].position.y,
+            z: pts[i + 1].position.z - pts[i].position.z,
+          });
+          const dot = inc.x * out.x + inc.y * out.y + inc.z * out.z;
+          assert.ok(
+            dot > 0.999,
+            `Unpowered phase boundary tangent cusp in ${type} at step ${i} ("${pts[i].phase}" -> "${pts[i + 1].phase}"): dot was ${dot.toFixed(5)}`
+          );
         }
       }
     }
