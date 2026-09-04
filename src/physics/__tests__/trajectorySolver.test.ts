@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { solveEarthMoonTrajectory, calculateLaunchWindows } from '../trajectorySolver.ts';
+import { solveEarthMoonTrajectory, calculateLaunchWindows, solveTargetedTLI } from '../trajectorySolver.ts';
+import { computeGravitationalAcceleration, getMoonEphemeris, getSunEphemeris } from '../nBodyIntegrator.ts';
+import { EARTH, MOON } from '../constants.ts';
 import { SPACEPORTS } from '../../data/spaceports.ts';
 
 test('Trajectory Solver - Physical Velocity Vectors & Non-Zero State on all points', () => {
@@ -248,4 +250,132 @@ test('Trajectory Solver - Moon-Relative Distance & Encounter Smoothness', () => 
     maxMoonDistDelta < 3500000,
     `Step-to-step Moon distance delta in lunar_flyby (${(maxMoonDistDelta / 1000).toFixed(1)} km) is smooth and continuous`
   );
+});
+
+test('Physics Engine - Geocentric Accelerating Frame Zero-Gravity Invariance at Origin', () => {
+  const earthOrigin = { x: 0, y: 0, z: 0 };
+  const moonPos = getMoonEphemeris(100000).position;
+  const sunPos = getSunEphemeris(100000).position;
+
+  const aOrigin = computeGravitationalAcceleration(earthOrigin, earthOrigin, moonPos, sunPos, true);
+  // Differential acceleration of Moon and Sun on Earth's center relative to Earth's accelerating frame must be 0
+  assert.equal(aOrigin.x, 0, 'Differential third-body acceleration X at Earth origin must be identically 0');
+  assert.equal(aOrigin.y, 0, 'Differential third-body acceleration Y at Earth origin must be identically 0');
+  assert.equal(aOrigin.z, 0, 'Differential third-body acceleration Z at Earth origin must be identically 0');
+});
+
+test('Trajectory Solver - Translunar Excursion Boundary (< 450,000 km)', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const archetypes = ['free_return', 'direct_loi'] as const;
+
+  for (const type of archetypes) {
+    const traj = solveEarthMoonTrajectory(type, ksc, 200000, 72, 0, 0);
+    for (let i = 0; i < traj.points.length; i++) {
+      const dE = traj.points[i].distanceToEarth;
+      // Catches unconstrained Hermite overshoot into deep space
+      assert.ok(
+        dE <= 450000000,
+        `${type} exceeded maximum excursion limit at step ${i}: distance was ${(dE / 1000).toFixed(1)} km`
+      );
+    }
+  }
+});
+
+test('Trajectory Solver - Monotonic Lunar Approach in Translunar Window', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const traj = solveEarthMoonTrajectory('lunar_flyby', ksc, 200000, 72, 0, 0);
+  const pts = traj.points;
+
+  // Approach window: from 12 hours after TLI up to perilune encounter
+  const tTLI = pts[0].t + 0.16 * (pts[pts.length - 1].t - pts[0].t);
+  let minMoonDist = Infinity;
+  let minIdx = 0;
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i].distanceToMoon < minMoonDist) {
+      minMoonDist = pts[i].distanceToMoon;
+      minIdx = i;
+    }
+  }
+
+  let prevDist = Infinity;
+  for (let i = 0; i < minIdx; i++) {
+    const pt = pts[i];
+    if (pt.t >= tTLI + 12 * 3600) {
+      assert.ok(
+        pt.distanceToMoon <= prevDist + 1000,
+        `Distance to Moon must decrease monotonically during approach: step ${i} (${(pt.distanceToMoon/1000).toFixed(1)} km) > prev (${(prevDist/1000).toFixed(1)} km)`
+      );
+      prevDist = pt.distanceToMoon;
+    }
+  }
+});
+
+test('Trajectory Solver - Vector LOI Burn Zero Radial Velocity & Moon Capture', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const traj = solveEarthMoonTrajectory('direct_loi', ksc, 200000, 72, 0, 0);
+  const pts = traj.points;
+
+  // Find step where LOI burn occurs
+  const loiIdx = pts.findIndex(p => p.phase.includes('LOI Capture Braking Burn'));
+  assert.ok(loiIdx > 0, 'Direct LOI must execute LOI capture burn');
+
+  const ptPost = pts[loiIdx + 1];
+  const moon = getMoonEphemeris(ptPost.t);
+  const relRx = ptPost.position.x - moon.position.x;
+  const relRy = ptPost.position.y - moon.position.y;
+  const relRz = ptPost.position.z - moon.position.z;
+  const dM = Math.hypot(relRx, relRy, relRz);
+  const ur = { x: relRx / dM, y: relRy / dM, z: relRz / dM };
+
+  const relVx = ptPost.velocity.x - moon.velocity.x;
+  const relVy = ptPost.velocity.y - moon.velocity.y;
+  const relVz = ptPost.velocity.z - moon.velocity.z;
+
+  const vRadial = Math.abs(relVx * ur.x + relVy * ur.y + relVz * ur.z);
+  // Post-LOI radial velocity relative to Moon must be virtually 0 (< 10 mm/s)
+  assert.ok(vRadial < 0.01, `Post-LOI relative radial velocity (${vRadial.toFixed(4)} m/s) must be < 0.01 m/s`);
+});
+
+test('Trajectory Solver - Shooting Solver Performance Benchmark (< 25 ms)', () => {
+  const t0 = performance.now();
+  const solved = solveTargetedTLI(100, 0, 68);
+  const elapsed = performance.now() - t0;
+
+  assert.ok(elapsed < 25, `Shooting solver execution time (${elapsed.toFixed(1)} ms) must be < 25 ms`);
+  assert.ok(Math.abs(solved.achievedAltKm - 100) < 2.0, `Achieved altitude (${solved.achievedAltKm.toFixed(1)} km) matches 100 km target within 2 km`);
+});
+
+test('Trajectory Solver - Time-Normalized Turn Rate during Unpowered Flight', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const traj = solveEarthMoonTrajectory('lunar_flyby', ksc, 200000, 72, 0, 0);
+  const pts = traj.points;
+
+  for (let i = 1; i < pts.length - 1; i++) {
+    if (!pts[i].phase.includes('Burn') && !pts[i].phase.includes('Ascent')) {
+      const dt = pts[i + 1].t - pts[i].t;
+      const v1 = pts[i].velocity;
+      const v2 = pts[i + 1].velocity;
+      const m1 = Math.hypot(v1.x, v1.y, v1.z);
+      const m2 = Math.hypot(v2.x, v2.y, v2.z);
+      const dot = (v1.x * v2.x + v1.y * v2.y + v1.z * v2.z) / (m1 * m2);
+      const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+      const turnRate = angle / dt;
+
+      assert.ok(
+        turnRate < 0.005,
+        `Unpowered turn rate (${turnRate.toFixed(5)} rad/s at step ${i}) must be < 0.005 rad/s`
+      );
+    }
+  }
+});
+
+test('Trajectory Solver - Surface Collision Avoidance', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const traj = solveEarthMoonTrajectory('lunar_flyby', ksc, 200000, 72, 0, 0);
+
+  for (let i = 10; i < traj.points.length; i++) {
+    const pt = traj.points[i];
+    assert.ok(pt.distanceToEarth >= EARTH.radius, `Spacecraft must not intersect Earth: step ${i} dist was ${pt.distanceToEarth} m`);
+    assert.ok(pt.distanceToMoon >= MOON.radius, `Spacecraft must not intersect Moon: step ${i} dist was ${pt.distanceToMoon} m`);
+  }
 });
