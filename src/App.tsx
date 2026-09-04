@@ -159,6 +159,7 @@ export function App() {
       setReferenceFrame('geocentric');
       setScaleMode('true');
       setCameraPreset('infographic');
+      setTimeWarp(1);
     }
   };
 
