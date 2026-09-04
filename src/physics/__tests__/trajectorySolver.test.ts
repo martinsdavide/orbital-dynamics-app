@@ -134,3 +134,95 @@ test('Trajectory Solver - Infographic Mission Milestones (1 to 8) Verification',
     }
   }
 });
+
+test('Trajectory Solver - Mathematical Continuity & Zero-Jump Regression across all archetypes', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const archetypes = ['free_return', 'direct_loi', 'lunar_flyby'] as const;
+
+  for (const type of archetypes) {
+    const traj = solveEarthMoonTrajectory(type, ksc, 200000, 72, 0, 0);
+    const pts = traj.points;
+    assert.ok(pts.length >= 720, `${type} must contain at least 720 points for high-fidelity representation`);
+
+    let maxDelta = 0;
+    let worstStep = 0;
+
+    for (let i = 1; i < pts.length; i++) {
+      const p1 = pts[i - 1].position;
+      const p2 = pts[i].position;
+      const delta = Math.hypot(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
+      if (delta > maxDelta) {
+        maxDelta = delta;
+        worstStep = i;
+      }
+      // Regression check: no adjacent points may jump by > 5,000 km (catches the previous 499,000 km and 18,000 km bugs)
+      assert.ok(
+        delta < 5000000,
+        `Discontinuity detected in ${type} at step ${i}/${pts.length} (fraction ${(i / pts.length).toFixed(3)}): step jump was ${(delta / 1000).toFixed(1)} km`
+      );
+    }
+
+    // Maximum step delta across the entire 72-hour mission must be within normal physical travel (< 4,000 km per step)
+    assert.ok(
+      maxDelta < 4000000,
+      `${type} maximum step delta (${(maxDelta / 1000).toFixed(1)} km at step ${worstStep}) must be < 4,000 km`
+    );
+  }
+});
+
+test('Trajectory Solver - Finite-Difference Velocity & Tangent Consistency', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const archetypes = ['free_return', 'direct_loi', 'lunar_flyby'] as const;
+
+  for (const type of archetypes) {
+    const traj = solveEarthMoonTrajectory(type, ksc, 200000, 72, 0, 0);
+    const pts = traj.points;
+
+    for (let i = 1; i < pts.length - 1; i++) {
+      const dt = pts[i + 1].t - pts[i - 1].t;
+      const numVx = (pts[i + 1].position.x - pts[i - 1].position.x) / dt;
+      const numVy = (pts[i + 1].position.y - pts[i - 1].position.y) / dt;
+      const numVz = (pts[i + 1].position.z - pts[i - 1].position.z) / dt;
+
+      const diff = Math.hypot(numVx - pts[i].velocity.x, numVy - pts[i].velocity.y, numVz - pts[i].velocity.z);
+      // Velocity vectors must agree with position finite difference to within 1 mm/s
+      assert.ok(
+        diff < 0.001,
+        `Finite-difference velocity mismatch at point ${i} in ${type}: diff was ${diff} m/s`
+      );
+
+      // Tangent alignment: velocity must point along displacement within continuous flight phases
+      if (pts[i].phase === pts[i + 1].phase && pts[i].phase === pts[i - 1].phase) {
+        const dx = pts[i + 1].position.x - pts[i].position.x;
+        const dy = pts[i + 1].position.y - pts[i].position.y;
+        const dz = pts[i + 1].position.z - pts[i].position.z;
+        const dMag = Math.hypot(dx, dy, dz);
+        const vMag = pts[i].speed;
+
+        if (dMag > 10 && vMag > 10) {
+          const dot = (dx * pts[i].velocity.x + dy * pts[i].velocity.y + dz * pts[i].velocity.z) / (dMag * vMag);
+          assert.ok(dot > 0.70, `Velocity tangent at step ${i} in ${type} (${pts[i].phase}) must point forward (dot=${dot.toFixed(3)})`);
+        }
+      }
+    }
+  }
+});
+
+test('Trajectory Solver - Moon-Relative Distance & Encounter Smoothness', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const flybyTraj = solveEarthMoonTrajectory('lunar_flyby', ksc, 200000, 72, 0, 0);
+
+  // During flyby, distance to Moon must not jump abruptly between consecutive steps
+  let maxMoonDistDelta = 0;
+  for (let i = 1; i < flybyTraj.points.length; i++) {
+    const dDistM = Math.abs(flybyTraj.points[i].distanceToMoon - flybyTraj.points[i - 1].distanceToMoon);
+    if (dDistM > maxMoonDistDelta) {
+      maxMoonDistDelta = dDistM;
+    }
+  }
+  // Step-to-step Moon distance change must be smoothly bounded (< 3,500 km per step)
+  assert.ok(
+    maxMoonDistDelta < 3500000,
+    `Step-to-step Moon distance delta in lunar_flyby (${(maxMoonDistDelta / 1000).toFixed(1)} km) is smooth and continuous`
+  );
+});

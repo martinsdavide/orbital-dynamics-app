@@ -1288,15 +1288,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         );
       });
 
-      // Continuous Catmull-Rom spline with centripetal parameterization
-      const curve = new THREE.CatmullRomCurve3(rawSplinePts, false, 'centripetal', 0.5);
-      const ribbonPts = curve.getPoints(400);
-
+      // Render physical trajectory samples directly — no global Catmull-Rom spline distortion
       // Split into Outbound and Inbound ribbons
       const splitFrac = activeTrajectory.outboundSplitFraction || 0.52;
-      const splitIdx = Math.floor(splitFrac * ribbonPts.length);
-      const outboundPts = ribbonPts.slice(0, splitIdx + 1);
-      const inboundPts = ribbonPts.slice(splitIdx);
+      const splitIdx = Math.floor(splitFrac * rawSplinePts.length);
+      const outboundPts = rawSplinePts.slice(0, splitIdx + 1);
+      const inboundPts = rawSplinePts.slice(splitIdx);
 
       if (transferTrajectoryLineRef.current && outboundPts.length > 0) {
         transferTrajectoryLineRef.current.geometry.setFromPoints(outboundPts);
@@ -1320,8 +1317,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         }
 
         activeTrajectory.milestones.forEach((m) => {
-          const ptIdx = Math.min(ribbonPts.length - 1, Math.floor(m.tFraction * (ribbonPts.length - 1)));
-          const badgePos = ribbonPts[ptIdx];
+          const ptIdx = Math.min(rawSplinePts.length - 1, m.pointIndex ?? Math.floor(m.tFraction * (rawSplinePts.length - 1)));
+          const badgePos = rawSplinePts[ptIdx];
           if (!badgePos) return;
 
           const texture = createMilestoneBadgeTexture(m.id, m.color);
@@ -1338,17 +1335,33 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         milestoneBadgesGroupRef.current.visible = true;
       }
 
-      if (spacecraftMarkerRef.current && ribbonPts.length > 0) {
+      // Spacecraft Marker: Continuous time-based interpolation along physical states
+      if (spacecraftMarkerRef.current && rawSplinePts.length > 0) {
         spacecraftMarkerRef.current.visible = true;
-        const targetIdx = Math.min(
-          ribbonPts.length - 1,
-          Math.floor(trajectoryProgress * (ribbonPts.length - 1))
-        );
-        const scPos = ribbonPts[targetIdx];
+        const totalDuration = activeTrajectory.points[activeTrajectory.points.length - 1].t - activeTrajectory.points[0].t;
+        const currentT = activeTrajectory.points[0].t + trajectoryProgress * totalDuration;
+
+        let lowerIdx = 0;
+        let upperIdx = activeTrajectory.points.length - 1;
+        for (let i = 0; i < activeTrajectory.points.length - 1; i++) {
+          if (activeTrajectory.points[i + 1].t >= currentT) {
+            lowerIdx = i;
+            upperIdx = i + 1;
+            break;
+          }
+        }
+
+        const p0 = rawSplinePts[lowerIdx];
+        const p1 = rawSplinePts[upperIdx];
+        const t0 = activeTrajectory.points[lowerIdx].t;
+        const t1 = activeTrajectory.points[upperIdx].t;
+        const alpha = t1 > t0 ? Math.max(0, Math.min(1, (currentT - t0) / (t1 - t0))) : 0;
+
+        const scPos = new THREE.Vector3().lerpVectors(p0, p1, alpha);
         spacecraftMarkerRef.current.position.copy(scPos);
 
-        if (targetIdx < ribbonPts.length - 1) {
-          spacecraftMarkerRef.current.lookAt(ribbonPts[targetIdx + 1]);
+        if (upperIdx < rawSplinePts.length) {
+          spacecraftMarkerRef.current.lookAt(p1);
         }
       }
     } else {
