@@ -446,12 +446,121 @@ function propagateSeamlessTrajectory(
   const earthRotAtT0 = (departureEpochSeconds / EARTH.rotationPeriod) * (2 * Math.PI);
   const phi0 = lonRad + earthRotAtT0;
 
-  const totalSteps = 360;
+  // Higher step count gives the Catmull-Rom spline denser anchors on the inbound arc
+  const totalSteps = 720;
 
   let minMoonDist = Infinity;
   let minEarthDistPostPerilune = Infinity;
   let measuredLoiDV = 820;
   let measuredArrivalSpeed = 1.2;
+
+  // ── Arc-Length-Compensated Inbound LUT (free_return only) ──────────────────
+  // The inbound leg sweeps ~π radians while radius falls from rMoon (~384,400 km)
+  // to rSplashdown (~6,421 km).  A LINEAR angle sweep creates enormous arc steps
+  // at the Moon end (≈7,700 km/step at 360 pts) that make the spline look jagged.
+  // Fix: integrate 1/r along the radius profile so angular sweep rate is inversely
+  // proportional to radius — keeping arc-length per step roughly constant (~1,700 km).
+  const N_LUT = 2000;
+  const rSplashdownFR = rEarth + 50000;
+  const inboundRAtU: number[] = [];
+  const inboundCumInvR: number[] = [0];
+  for (let i = 0; i <= N_LUT; i++) {
+    const uLut = i / N_LUT;
+    const sinHalf = Math.sin((Math.PI / 2) * uLut);
+    inboundRAtU.push(rMoon - (rMoon - rSplashdownFR) * sinHalf * sinHalf);
+    if (i > 0) {
+      inboundCumInvR.push(inboundCumInvR[i - 1] + 1 / inboundRAtU[i]);
+    }
+  }
+  const totalInvR = inboundCumInvR[N_LUT];
+
+  /** Arc-length-compensated angle fraction [0,1] for inbound parameter u [0,1] */
+  function inboundAngFrac(u: number): number {
+    const lutIdx = u * N_LUT;
+    const lo = Math.floor(lutIdx);
+    const hi = Math.min(N_LUT, lo + 1);
+    const t = lutIdx - lo;
+    return (inboundCumInvR[lo] + (inboundCumInvR[hi] - inboundCumInvR[lo]) * t) / totalInvR;
+  }
+
+  /** Arc-length-compensated radius for inbound parameter u [0,1] */
+  function inboundRVal(u: number): number {
+    const lutIdx = u * N_LUT;
+    const lo = Math.floor(lutIdx);
+    const hi = Math.min(N_LUT, lo + 1);
+    const t = lutIdx - lo;
+    return inboundRAtU[lo] + (inboundRAtU[hi] - inboundRAtU[lo]) * t;
+  }
+  // ───────────────────────────────────────────────────────────────────────────
+
+  // ── Arc-Length-Compensated Outbound LUT (free_return only) ─────────────────
+  // Same issue as inbound: r grows from rLEO to rMoon, so linear angle sweep
+  // creates tiny steps near Earth and huge steps (~5,990 km) near the Moon.
+  // Same fix: angular sweep rate ∝ 1/r via cumulative 1/r integral LUT.
+  const outboundRAtU: number[] = [];
+  const outboundCumInvR: number[] = [0];
+  for (let i = 0; i <= N_LUT; i++) {
+    const uLut = i / N_LUT;
+    const r = rLEO + (rMoon - rLEO) * Math.sin(uLut * (Math.PI / 2));
+    outboundRAtU.push(r);
+    if (i > 0) {
+      outboundCumInvR.push(outboundCumInvR[i - 1] + 1 / r);
+    }
+  }
+  const outboundTotalInvR = outboundCumInvR[N_LUT];
+
+  /** Arc-length-compensated angle fraction [0,1] for outbound parameter u [0,1] */
+  function outboundAngFrac(u: number): number {
+    const lutIdx = u * N_LUT;
+    const lo = Math.floor(lutIdx);
+    const hi = Math.min(N_LUT, lo + 1);
+    const t = lutIdx - lo;
+    return (outboundCumInvR[lo] + (outboundCumInvR[hi] - outboundCumInvR[lo]) * t) / outboundTotalInvR;
+  }
+
+  /** Arc-length-compensated radius for outbound parameter u [0,1] */
+  function outboundRVal(u: number): number {
+    const lutIdx = u * N_LUT;
+    const lo = Math.floor(lutIdx);
+    const hi = Math.min(N_LUT, lo + 1);
+    const t = lutIdx - lo;
+    return outboundRAtU[lo] + (outboundRAtU[hi] - outboundRAtU[lo]) * t;
+  }
+  // ───────────────────────────────────────────────────────────────────────────
+
+  // ── Arc-Length-Compensated HEO Loop LUT (free_return only) ─────────────────
+  // HEO apogee is 72,000 km → r peaks at 78,371 km → 4,883 km/step with linear angle.
+  // Same fix: angular sweep ∝ 1/r keeps all HEO steps uniformly ~2,000 km.
+  const heoRAtU: number[] = [];
+  const heoCumInvR: number[] = [0];
+  for (let i = 0; i <= N_LUT; i++) {
+    const uLut = i / N_LUT;
+    const r = rLEO + (rHEOApogee - rLEO) * Math.sin(uLut * Math.PI);
+    heoRAtU.push(r);
+    if (i > 0) {
+      heoCumInvR.push(heoCumInvR[i - 1] + 1 / r);
+    }
+  }
+  const heoTotalInvR = heoCumInvR[N_LUT];
+
+  /** Arc-length-compensated angle fraction [0,1] for HEO loop parameter u [0,1] */
+  function heoAngFrac(u: number): number {
+    const lutIdx = u * N_LUT;
+    const lo = Math.floor(lutIdx);
+    const hi = Math.min(N_LUT, lo + 1);
+    const t = lutIdx - lo;
+    return (heoCumInvR[lo] + (heoCumInvR[hi] - heoCumInvR[lo]) * t) / heoTotalInvR;
+  }
+
+  /** Arc-length-compensated radius for HEO loop parameter u [0,1] */
+  function heoRVal(u: number): number {
+    const lutIdx = u * N_LUT;
+    const lo = Math.floor(lutIdx);
+    const hi = Math.min(N_LUT, lo + 1);
+    const t = lutIdx - lo;
+    return heoRAtU[lo] + (heoRAtU[hi] - heoRAtU[lo]) * t;
+  }
+  // ───────────────────────────────────────────────────────────────────────────
 
   for (let step = 0; step <= totalSteps; step++) {
     const fraction = step / totalSteps;
@@ -469,7 +578,6 @@ function propagateSeamlessTrajectory(
       const sinInc = Math.sin(MOON.inclinationToEcliptic);
 
       const rPerilune = MOON.radius + 110000;
-      const rSplashdown = rEarth + 50000;
 
       // Lunar encounter angle at arrival (fraction = 0.50)
       const arrivalEpoch = departureEpochSeconds + 0.50 * totalMissionSeconds;
@@ -498,10 +606,11 @@ function propagateSeamlessTrajectory(
         phase = u === 0 ? 'Lift-off: ' + spaceport.name : 'Atmospheric Ascent to LEO';
 
       } else if (fraction < 0.22) {
-        // 2. High Earth Orbit (HEO) Staging Loop
+        // 2. High Earth Orbit (HEO) Staging Loop — arc-length-compensated
+        //    Angular sweep ∝ 1/r so step size is uniform around the full HEO ellipse
         const u = (fraction - 0.08) / 0.14;
-        const curAngle = heoStartAngle + u * (Math.PI * 2.0);
-        const rCur = rLEO + (rHEOApogee - rLEO) * Math.sin(u * Math.PI);
+        const curAngle = heoStartAngle + 2.0 * Math.PI * heoAngFrac(u);
+        const rCur = heoRVal(u);
 
         pos = {
           x: rCur * Math.cos(curAngle),
@@ -513,11 +622,13 @@ function propagateSeamlessTrajectory(
         phase = u < 0.5 ? 'High Earth Orbit (HEO) Staging' : 'Launcher Separation & TLI Setup';
 
       } else if (fraction <= 0.50) {
-        // 3. Trans-Lunar Injection & Outbound Cislunar Transit (sweeps smoothly to Moon leading edge)
+        // 3. Trans-Lunar Injection & Outbound Cislunar Transit — arc-length-compensated
+        //    Angular sweep rate ∝ 1/r: faster near Earth (small r), slower near Moon (large r)
         const u = (fraction - 0.22) / 0.28;
         const targetAngle = arrivalMoonAngle + leadOffset;
-        const curAngle = tliAngle + u * (targetAngle - tliAngle);
-        const rCur = rLEO + (rMoon - rLEO) * Math.sin(u * (Math.PI / 2));
+        const totalDTheta = targetAngle - tliAngle;
+        const curAngle = tliAngle + totalDTheta * outboundAngFrac(u);
+        const rCur = outboundRVal(u);
 
         pos = {
           x: rCur * Math.cos(curAngle),
@@ -545,12 +656,12 @@ function propagateSeamlessTrajectory(
         phase = 'Lunar Far-Side Gravity Assist Slingshot (Moon Kick)';
 
       } else {
-        // 5. Inbound Earth Return (smoothly sweeps from Moon trailing edge across cislunar space to splashdown)
+        // 5. Inbound Earth Return — arc-length-compensated so step size is uniform
+        //    Angular sweep rate ∝ 1/r so arc-length ≈ const across all 346 inbound steps
         const u = (fraction - 0.52) / 0.48; // 0 to 1
         const exitAngle = arrivalMoonAngle - leadOffset;
-        const splashdownAngle = exitAngle + Math.PI;
-        const curAngle = exitAngle + u * (splashdownAngle - exitAngle);
-        const rCur = rMoon - (rMoon - rSplashdown) * Math.sin(u * (Math.PI / 2));
+        const curAngle = exitAngle + Math.PI * inboundAngFrac(u);
+        const rCur = inboundRVal(u);
 
         pos = {
           x: rCur * Math.cos(curAngle),
