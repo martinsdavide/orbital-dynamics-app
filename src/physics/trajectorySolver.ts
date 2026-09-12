@@ -12,10 +12,11 @@ export function calculateLaunchWindows(
   spaceport: Spaceport,
   simTimeHours: number = 0
 ): LaunchWindow[] {
-  const moonInclinationDeg = 28.58;
+  // Maximum lunar declination relative to Earth equator (axial tilt 23.44° + ecliptic inclination 5.15° = 28.58°)
+  const moonMaxDeclinationDeg = MOON.maxDeclinationDeg ?? 28.58;
   const absLat = Math.abs(spaceport.latitude);
   const latRad = (spaceport.latitude * Math.PI) / 180;
-  const incRad = (moonInclinationDeg * Math.PI) / 180;
+  const incRad = (moonMaxDeclinationDeg * Math.PI) / 180;
   const siderealDayHours = 23.9344;
 
   let azAscending = 90;
@@ -23,7 +24,7 @@ export function calculateLaunchWindows(
   let planeEfficiency = 98;
   let planePenaltyDV = 0;
 
-  if (absLat <= moonInclinationDeg) {
+  if (absLat <= moonMaxDeclinationDeg) {
     const cosAz = Math.cos(incRad) / Math.cos(latRad);
     const azRad = Math.asin(Math.max(-1, Math.min(1, cosAz)));
     azAscending = Math.round((azRad * 180) / Math.PI);
@@ -33,7 +34,7 @@ export function calculateLaunchWindows(
   } else {
     azAscending = 90;
     azDescending = 90;
-    const deltaIncRad = ((absLat - moonInclinationDeg) * Math.PI) / 180;
+    const deltaIncRad = ((absLat - moonMaxDeclinationDeg) * Math.PI) / 180;
     const vLEO = Math.sqrt(EARTH.mu / (EARTH.radius + 200000));
     planePenaltyDV = Math.round(2 * vLEO * Math.sin(deltaIncRad / 2));
     planeEfficiency = Math.max(75, Math.round(100 - (planePenaltyDV / 3140) * 100));
@@ -347,18 +348,18 @@ export function solveEarthMoonTrajectory(
   const tliDeltaV = vTLIInertial - vLEO;
 
   const spaceportBoost = spaceport.equatorialBoostVelocity;
-  const moonInclinationDeg = 28.58;
+  const moonMaxDeclinationDeg = MOON.maxDeclinationDeg ?? 28.58;
   const absLat = Math.abs(spaceport.latitude);
   let planeChangeDeltaV = 0;
 
   // Fixed Southern Hemisphere plane-change penalty
-  if (absLat > moonInclinationDeg) {
-    const deltaIncRad = ((absLat - moonInclinationDeg) * Math.PI) / 180;
+  if (absLat > moonMaxDeclinationDeg) {
+    const deltaIncRad = ((absLat - moonMaxDeclinationDeg) * Math.PI) / 180;
     planeChangeDeltaV = Math.round(2 * vLEO * Math.sin(deltaIncRad / 2));
   }
 
   const latRad = (spaceport.latitude * Math.PI) / 180;
-  const incRad = (Math.max(absLat, moonInclinationDeg) * Math.PI) / 180;
+  const incRad = (Math.max(absLat, moonMaxDeclinationDeg) * Math.PI) / 180;
   const sinAz = Math.max(-1, Math.min(1, Math.cos(incRad) / Math.cos(latRad)));
   const launchAzimuthRequired = Math.round((Math.asin(sinAz) * 180) / Math.PI);
 

@@ -5,6 +5,7 @@ import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 import type { EarthMoonTrajectory } from '../../types/trajectory';
 import { SCALING, EARTH, MOON, SUN } from '../../physics/constants.ts';
+import { calculateLunarOrbitPoint } from '../../physics/nBodyIntegrator.ts';
 import {
   createEarthTexture,
   createMoonTexture,
@@ -538,10 +539,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const moonOrbitPts: THREE.Vector3[] = [];
     for (let i = 0; i <= 128; i++) {
       const theta = (i / 128) * Math.PI * 2;
-      const x = Math.cos(theta) * SCALING.visual.earthMoonDistance;
-      const z = Math.sin(theta) * SCALING.visual.earthMoonDistance;
-      const y = Math.sin(theta) * (SCALING.visual.earthMoonDistance * Math.tan(MOON.inclinationToEcliptic));
-      moonOrbitPts.push(new THREE.Vector3(x, y, z));
+      const pt = calculateLunarOrbitPoint(theta, SCALING.visual.earthMoonDistance);
+      moonOrbitPts.push(new THREE.Vector3(pt.x, pt.y, pt.z));
     }
     const moonOrbitGeo = new THREE.BufferGeometry().setFromPoints(moonOrbitPts);
     const moonOrbitMat = new THREE.LineBasicMaterial({
@@ -880,12 +879,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const moonOrbitPts: THREE.Vector3[] = [];
       for (let i = 0; i <= 128; i++) {
         const theta = (i / 128) * Math.PI * 2;
-        const x = Math.cos(theta) * emDistScale;
-        const z = Math.sin(theta) * emDistScale;
-        const y = Math.sin(theta) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
-        moonOrbitPts.push(new THREE.Vector3(x, y, z));
+        const pt = calculateLunarOrbitPoint(theta, emDistScale);
+        moonOrbitPts.push(new THREE.Vector3(pt.x, pt.y, pt.z));
       }
-      moonOrbitLineRef.current.geometry.setFromPoints(moonOrbitPts);
+      moonOrbitLineRef.current.geometry.dispose();
+      moonOrbitLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(moonOrbitPts);
       moonOrbitLineRef.current.scale.setScalar(1);
     }
 
@@ -925,11 +923,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
           const earthX = Math.cos(thetaE) * sunDist;
           const earthZ = Math.sin(thetaE) * sunDist;
-          const relMoonX = Math.cos(thetaM) * emDistScale;
-          const relMoonZ = Math.sin(thetaM) * emDistScale;
-          const relMoonY = Math.sin(thetaM) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
+          const relMoon = calculateLunarOrbitPoint(thetaM, emDistScale);
 
-          composedMoonPts.push(new THREE.Vector3(earthX + relMoonX, relMoonY, earthZ + relMoonZ));
+          composedMoonPts.push(new THREE.Vector3(earthX + relMoon.x, relMoon.y, earthZ + relMoon.z));
           colorArr.push(0.95 * 0.4, 0.2 * 0.4, 0.6 * 0.4);
         }
       } else {
@@ -943,11 +939,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
           const earthX = Math.cos(thetaE) * sunDist;
           const earthZ = Math.sin(thetaE) * sunDist;
 
-          const relMoonX = Math.cos(thetaM) * emDistScale;
-          const relMoonZ = Math.sin(thetaM) * emDistScale;
-          const relMoonY = Math.sin(thetaM) * (emDistScale * Math.tan(MOON.inclinationToEcliptic));
+          const relMoon = calculateLunarOrbitPoint(thetaM, emDistScale);
 
-          composedMoonPts.push(new THREE.Vector3(earthX + relMoonX, relMoonY, earthZ + relMoonZ));
+          composedMoonPts.push(new THREE.Vector3(earthX + relMoon.x, relMoon.y, earthZ + relMoon.z));
 
           // Exponential fade towards the tail: older than 1 revolution completely dissolves
           const intensity = 0.04 + 0.96 * Math.pow(u, 1.6);
@@ -971,11 +965,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       : ephemeris.timeSeconds;
 
     const moonAngle = (activeMissionTime / MOON.orbitalPeriod) * (2 * Math.PI);
-    const cosInc = Math.cos(MOON.inclinationToEcliptic);
-    const sinInc = Math.sin(MOON.inclinationToEcliptic);
-    const moonX = Math.cos(moonAngle) * emDistScale;
-    const moonZ = -cosInc * Math.sin(moonAngle) * emDistScale;
-    const moonY = sinInc * Math.sin(moonAngle) * emDistScale;
+    const moonPos = calculateLunarOrbitPoint(moonAngle, emDistScale);
+    const moonX = moonPos.x;
+    const moonY = moonPos.y;
+    const moonZ = moonPos.z;
 
     // Dynamically rotate Earth surface based on active mission time
     if (earthMeshRef.current) {
@@ -1036,11 +1029,11 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       currentEarthWorldPos.set(0, 0, 0);
       currentMoonWorldPos.set(moonX, moonY, moonZ);
 
-      // In geocentric frame, Sun moves along the Ecliptic plane inclined at axial tilt
+      // In geocentric frame, Sun moves along the Ecliptic plane (Y = 0)
       const sunAngle = (ephemeris.timeSeconds / EARTH.orbitalPeriod) * (2 * Math.PI) + Math.PI;
       const sunX = Math.cos(sunAngle) * sunDist;
       const sunZ = Math.sin(sunAngle) * sunDist;
-      const sunY = Math.sin(sunAngle) * (sunDist * Math.sin(EARTH.axialTilt));
+      const sunY = 0;
 
       if (earthGroupRef.current) {
         earthGroupRef.current.position.set(0, 0, 0);
@@ -1062,17 +1055,17 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         composedMoonSunLineRef.current.visible = false;
       }
 
-      // 1. Apparent Ecliptic Solar Orbit Line (Gold ring around Earth)
+      // 1. Apparent Ecliptic Solar Orbit Line (Gold ring around Earth in Ecliptic plane Y = 0)
       if (geocentricSolarOrbitLineRef.current) {
         const eclipticPts: THREE.Vector3[] = [];
         for (let i = 0; i <= 256; i++) {
           const theta = (i / 256) * Math.PI * 2;
           const ex = Math.cos(theta) * sunDist;
           const ez = Math.sin(theta) * sunDist;
-          const ey = Math.sin(theta) * (sunDist * Math.sin(EARTH.axialTilt));
-          eclipticPts.push(new THREE.Vector3(ex, ey, ez));
+          eclipticPts.push(new THREE.Vector3(ex, 0, ez));
         }
-        geocentricSolarOrbitLineRef.current.geometry.setFromPoints(eclipticPts);
+        geocentricSolarOrbitLineRef.current.geometry.dispose();
+        geocentricSolarOrbitLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(eclipticPts);
         geocentricSolarOrbitLineRef.current.visible = showGeocentricSolarOrbit && appMode === 'system';
       }
 
@@ -1093,37 +1086,49 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         earthUmbraShadowConeRef.current.visible = showEarthUmbraShadow && appMode === 'system';
       }
 
-      // 3. GEO & LEO Belts in Earth's equatorial plane
+      // 3. GEO & LEO Belts in Earth's equatorial plane (tilted by EARTH.axialTilt around Z axis)
+      const cosTilt = Math.cos(EARTH.axialTilt);
+      const sinTilt = Math.sin(EARTH.axialTilt);
+
       if (geoBeltLineRef.current) {
-        const geoRadius = SCALING.visual.earthRadius * (42164 / 6371);
+        const geoRadius = scales.earthRadius * (42164 / 6371);
         const geoPts: THREE.Vector3[] = [];
         for (let i = 0; i <= 96; i++) {
           const theta = (i / 96) * Math.PI * 2;
-          geoPts.push(new THREE.Vector3(Math.cos(theta) * geoRadius, 0, Math.sin(theta) * geoRadius));
+          const x = Math.cos(theta) * geoRadius * cosTilt;
+          const y = Math.cos(theta) * geoRadius * sinTilt;
+          const z = Math.sin(theta) * geoRadius;
+          geoPts.push(new THREE.Vector3(x, y, z));
         }
-        geoBeltLineRef.current.geometry.setFromPoints(geoPts);
+        geoBeltLineRef.current.geometry.dispose();
+        geoBeltLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(geoPts);
         geoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
       }
 
       if (leoBeltLineRef.current) {
-        const leoRadius = SCALING.visual.earthRadius * 1.08;
+        const leoRadius = scales.earthRadius * 1.08;
         const leoPts: THREE.Vector3[] = [];
         for (let i = 0; i <= 64; i++) {
           const theta = (i / 64) * Math.PI * 2;
-          leoPts.push(new THREE.Vector3(Math.cos(theta) * leoRadius, 0, Math.sin(theta) * leoRadius));
+          const x = Math.cos(theta) * leoRadius * cosTilt;
+          const y = Math.cos(theta) * leoRadius * sinTilt;
+          const z = Math.sin(theta) * leoRadius;
+          leoPts.push(new THREE.Vector3(x, y, z));
         }
-        leoBeltLineRef.current.geometry.setFromPoints(leoPts);
+        leoBeltLineRef.current.geometry.dispose();
+        leoBeltLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(leoPts);
         leoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
       }
 
-      // 4. Ecliptic-Lunar Line of Nodes
+      // 4. Ecliptic-Lunar Line of Nodes (intersection of Lunar orbit plane and Ecliptic Y=0 along X-axis)
       if (lineOfNodesLineRef.current) {
         const nodeDist = emDistScale * 1.35;
         const nodePts = [
           new THREE.Vector3(-nodeDist, 0, 0),
           new THREE.Vector3(nodeDist, 0, 0),
         ];
-        lineOfNodesLineRef.current.geometry.setFromPoints(nodePts);
+        lineOfNodesLineRef.current.geometry.dispose();
+        lineOfNodesLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(nodePts);
         lineOfNodesLineRef.current.visible = showLineOfNodes && appMode === 'system';
       }
     }

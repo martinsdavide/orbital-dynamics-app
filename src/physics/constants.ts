@@ -31,8 +31,9 @@ export const MOON = {
   mu: 4.9048695e12, // m^3/s^2 (G * M_moon)
   semiMajorAxis: 3.844e8, // m (384,400 km)
   eccentricity: 0.0549,
-  inclinationToEcliptic: 5.145 * (Math.PI / 180), // rad (5.145 deg)
+  inclinationToEcliptic: 5.145 * (Math.PI / 180), // rad (5.145 deg true ecliptic inclination)
   inclinationToEarthEquatorMean: 23.44 + 5.145, // approx range 18.3° to 28.6°
+  maxDeclinationDeg: 28.58, // Maximum lunar declination relative to Earth equator (axial tilt 23.44° + 5.145°)
   orbitalPeriod: 27.321661 * 86400, // s (27.32 days sidereal)
   synodicPeriod: 29.530589 * 86400, // s (29.53 days)
   soiRadius: 6.61e7, // m (66,100 km Laplace SOI)

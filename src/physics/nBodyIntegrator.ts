@@ -234,25 +234,47 @@ export function rk4StepTimeDependent(
 }
 
 /**
- * Returns analytical Moon position in Geocentric frame at time t (seconds)
+ * Authoritative Application-Wide Coordinate Convention:
+ * - Base plane: XZ plane represents the Ecliptic plane
+ * - Vertical axis: +Y points toward Ecliptic North
+ * - Direction of motion: Counter-clockwise when viewed from +Y
+ * - Ascending node: On the +X axis (theta = 0, y = 0, z = 0, moving towards +y)
+ * - Inclination: i = MOON.inclinationToEcliptic (5.145 deg)
+ * - Lunar position vector: [R * cos(theta), R * sin(i) * sin(theta), -R * cos(i) * sin(theta)]
+ *
+ * Mathematical Properties:
+ * - Constant radius: x^2 + y^2 + z^2 = R^2 for all theta
+ * - Planar: normal vector n = [0, cos(i), sin(i)], satisfies n . r = 0 for all theta
+ * - Angle between n and Ecliptic North [0, 1, 0] is exactly i (5.145 deg)
+ * - Line of nodes: X axis (intersection of lunar plane with ecliptic plane y = 0)
+ */
+export function calculateLunarOrbitPoint(angleRad: number, radiusMeters: number = MOON.semiMajorAxis): Vector3D {
+  const cosInc = Math.cos(MOON.inclinationToEcliptic);
+  const sinInc = Math.sin(MOON.inclinationToEcliptic);
+  return {
+    x: radiusMeters * Math.cos(angleRad),
+    y: radiusMeters * sinInc * Math.sin(angleRad),
+    z: -radiusMeters * cosInc * Math.sin(angleRad),
+  };
+}
+
+/**
+ * Returns analytical Moon position and velocity in Geocentric frame at time t (seconds).
+ * Guaranteed identical to calculateLunarOrbitPoint(omegaM * t, MOON.semiMajorAxis).
  */
 export function getMoonEphemeris(t: number): { position: Vector3D; velocity: Vector3D } {
   const omegaM = (2 * Math.PI) / MOON.orbitalPeriod;
   const angle = omegaM * t;
-  const dist = MOON.semiMajorAxis;
+  const pos = calculateLunarOrbitPoint(angle, MOON.semiMajorAxis);
+
   const cosInc = Math.cos(MOON.inclinationToEcliptic);
   const sinInc = Math.sin(MOON.inclinationToEcliptic);
-
-  const x = dist * Math.cos(angle);
-  const z = -dist * cosInc * Math.sin(angle);
-  const y = dist * sinInc * Math.sin(angle);
-
-  const vx = -dist * omegaM * Math.sin(angle);
-  const vz = -dist * omegaM * cosInc * Math.cos(angle);
-  const vy = dist * omegaM * sinInc * Math.cos(angle);
+  const vx = -MOON.semiMajorAxis * omegaM * Math.sin(angle);
+  const vy = MOON.semiMajorAxis * omegaM * sinInc * Math.cos(angle);
+  const vz = -MOON.semiMajorAxis * omegaM * cosInc * Math.cos(angle);
 
   return {
-    position: { x, y, z },
+    position: pos,
     velocity: { x: vx, y: vy, z: vz },
   };
 }

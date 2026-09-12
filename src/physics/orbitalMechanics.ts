@@ -1,5 +1,5 @@
-import { SUN, EARTH, MOON, SCALING } from './constants';
-import type { Vector3D, CelestialBodyState, LagrangePoint, EphemerisState, ReferenceFrame, ScaleMode } from '../types/celestial';
+import { SUN, EARTH, MOON, SCALING } from './constants.ts';
+import type { Vector3D, CelestialBodyState, LagrangePoint, EphemerisState, ReferenceFrame, ScaleMode } from '../types/celestial.ts';
 
 export function calculateKeplerianOrbit(
   semiMajorAxis: number,
@@ -7,7 +7,8 @@ export function calculateKeplerianOrbit(
   orbitalPeriod: number,
   inclinationRad: number,
   timeSeconds: number,
-  meanAnomalyOffset: number = 0
+  meanAnomalyOffset: number = 0,
+  centralMu: number = EARTH.mu
 ): { position: Vector3D; velocity: Vector3D } {
   const meanMotion = (2 * Math.PI) / orbitalPeriod;
   const meanAnomaly = (meanAnomalyOffset + meanMotion * timeSeconds) % (2 * Math.PI);
@@ -25,17 +26,21 @@ export function calculateKeplerianOrbit(
 
   const r = semiMajorAxis * (1 - eccentricity * Math.cos(E));
 
-  const xOrb = r * Math.cos(nu);
-  const yOrb = r * Math.sin(nu);
+  // Authoritative convention: XZ = Ecliptic plane, +Y = Ecliptic North, Ascending node on +X
+  const cosInc = Math.cos(inclinationRad);
+  const sinInc = Math.sin(inclinationRad);
 
-  const x = xOrb;
-  const y = yOrb * Math.cos(inclinationRad);
-  const z = yOrb * Math.sin(inclinationRad);
+  const x = r * Math.cos(nu);
+  const y = r * sinInc * Math.sin(nu);
+  const z = -r * cosInc * Math.sin(nu);
 
-  const vMag = Math.sqrt(EARTH.mu * (2 / r - 1 / semiMajorAxis));
-  const vx = -vMag * Math.sin(nu);
-  const vy = vMag * (eccentricity + Math.cos(nu)) * Math.cos(inclinationRad);
-  const vz = vMag * (eccentricity + Math.cos(nu)) * Math.sin(inclinationRad);
+  const p = Math.max(1e3, semiMajorAxis * (1 - eccentricity * eccentricity));
+  const vxOrb = -Math.sqrt(centralMu / p) * Math.sin(nu);
+  const vtransOrb = Math.sqrt(centralMu / p) * (eccentricity + Math.cos(nu));
+
+  const vx = vxOrb;
+  const vy = sinInc * vtransOrb;
+  const vz = -cosInc * vtransOrb;
 
   return {
     position: { x, y, z },
@@ -50,30 +55,24 @@ export function getEphemerisState(timeSeconds: number): EphemerisState {
     EARTH.orbitalPeriod,
     0,
     timeSeconds,
-    0.0
+    0.0,
+    SUN.mu
   );
 
   const earthRotation = (timeSeconds / EARTH.rotationPeriod) * (2 * Math.PI);
 
-  const nodalPrecessionRate = -(2 * Math.PI) / (18.6 * 365.25 * 86400);
-  const nodalAngle = nodalPrecessionRate * timeSeconds;
-
+  // Reconciled with getMoonEphemeris convention: circular baseline in XZ, tilted to +Y
   const moonOrbitRel = calculateKeplerianOrbit(
     MOON.semiMajorAxis,
-    MOON.eccentricity,
+    0,
     MOON.orbitalPeriod,
     MOON.inclinationToEcliptic,
     timeSeconds,
-    0.5
+    0.0,
+    EARTH.mu
   );
 
-  const cosNode = Math.cos(nodalAngle);
-  const sinNode = Math.sin(nodalAngle);
-  const moonX = moonOrbitRel.position.x * cosNode - moonOrbitRel.position.y * sinNode;
-  const moonY = moonOrbitRel.position.x * sinNode + moonOrbitRel.position.y * cosNode;
-  const moonZ = moonOrbitRel.position.z;
-
-  const moonPosRelEarth: Vector3D = { x: moonX, y: moonY, z: moonZ };
+  const moonPosRelEarth: Vector3D = moonOrbitRel.position;
 
   const sunState: CelestialBodyState = {
     name: 'Sun',
@@ -116,7 +115,8 @@ export function getEphemerisState(timeSeconds: number): EphemerisState {
   const emDir = normalize(moonPosRelEarth);
   const emDist = magnitude(moonPosRelEarth);
 
-  const emNormal = { x: 0, y: 0, z: 1 };
+  // Normal to Moon orbital plane in 3D: n = cross(r, v)
+  const emNormal = normalize(crossProduct(moonOrbitRel.position, moonOrbitRel.velocity));
   const emTransverse = crossProduct(emNormal, emDir);
 
   const rL1 = emDist * (1 - gamma);
