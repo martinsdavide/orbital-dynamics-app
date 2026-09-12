@@ -96,6 +96,8 @@ export function getScalingConfig(scaleMode: ScaleMode) {
   }
 }
 
+const MAX_TRAIL_POINTS = 4000;
+
 export type CameraPreset = 'free' | 'earth' | 'moon' | 'sun' | 'rocket' | 'spaceport' | 'earthrise' | 'infographic';
 
 interface ThreeViewportProps {
@@ -626,13 +628,25 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     ascentTrajectoryLineRef.current = ascentLine;
 
     const transferGeo = new THREE.BufferGeometry();
+    const posAttr = new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3);
+    posAttr.setUsage(THREE.DynamicDrawUsage);
+    transferGeo.setAttribute('position', posAttr);
+
+    const colorAttr = new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3);
+    colorAttr.setUsage(THREE.DynamicDrawUsage);
+    transferGeo.setAttribute('color', colorAttr);
+    transferGeo.setDrawRange(0, 0);
+
     const transferMat = new THREE.LineBasicMaterial({
-      color: 0xffffff,
       vertexColors: true,
-      linewidth: 2,
+      linewidth: 3,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
     });
     const transferLine = new THREE.Line(transferGeo, transferMat);
     transferLine.name = 'spacecraft_trajectory_trail';
+    transferLine.renderOrder = 10;
     scene.add(transferLine);
     transferTrajectoryLineRef.current = transferLine;
 
@@ -1224,7 +1238,8 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
             ascentPositionsRef.current.shift();
           }
           if (ascentTrajectoryLineRef.current) {
-            ascentTrajectoryLineRef.current.geometry.setFromPoints(ascentPositionsRef.current);
+            ascentTrajectoryLineRef.current.geometry.dispose();
+            ascentTrajectoryLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(ascentPositionsRef.current);
             ascentTrajectoryLineRef.current.visible = true;
           }
         } else {
@@ -1333,66 +1348,77 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       trailPts.push(scPos.clone());
 
       if (transferTrajectoryLineRef.current && trailPts.length > 1) {
-        transferTrajectoryLineRef.current.geometry.setFromPoints(trailPts);
+        const line = transferTrajectoryLineRef.current;
+        const geo = line.geometry;
+        const posAttr = geo.getAttribute('position') as THREE.BufferAttribute | undefined;
+        const colorAttr = geo.getAttribute('color') as THREE.BufferAttribute | undefined;
 
-        // Dynamic vertex colors along the trail to distinguish mission phases
-        const colors = new Float32Array(trailPts.length * 3);
+        if (posAttr && colorAttr) {
+          const posArray = posAttr.array as Float32Array;
+          const colorArray = colorAttr.array as Float32Array;
 
-        for (let i = 0; i < trailPts.length; i++) {
-          const frac = i < lowerIdx
-            ? (activeTrajectory.points[i].t - activeTrajectory.points[0].t) / (totalDuration || 1)
-            : trajectoryProgress;
+          const count = Math.min(trailPts.length, MAX_TRAIL_POINTS);
+          for (let i = 0; i < count; i++) {
+            const pt = trailPts[i];
+            posArray[i * 3] = pt.x;
+            posArray[i * 3 + 1] = pt.y;
+            posArray[i * 3 + 2] = pt.z;
 
-          let r = 0.06, g = 0.73, b = 0.51; // emerald default
-          if (activeTrajectory.type === 'free_return') {
-            if (frac < 0.45) {
-              // Outbound translunar leg: cyan -> emerald
-              const u = Math.min(1, frac / 0.45);
-              r = 0.04 * (1 - u) + 0.02 * u;
-              g = 0.72 * (1 - u) + 0.71 * u;
-              b = 0.51 * (1 - u) + 0.83 * u;
-            } else if (frac < 0.55) {
-              // Lunar perilune encounter: brilliant gold
-              r = 0.98; g = 0.75; b = 0.14;
+            const frac = i < lowerIdx
+              ? (activeTrajectory.points[i].t - activeTrajectory.points[0].t) / (totalDuration || 1)
+              : trajectoryProgress;
+
+            let r = 0.06, g = 0.73, b = 0.51; // emerald default
+            if (activeTrajectory.type === 'free_return') {
+              if (frac < 0.45) {
+                // Outbound translunar leg: cyan -> emerald
+                const u = Math.min(1, frac / 0.45);
+                r = 0.04 * (1 - u) + 0.02 * u;
+                g = 0.72 * (1 - u) + 0.71 * u;
+                b = 0.51 * (1 - u) + 0.83 * u;
+              } else if (frac < 0.55) {
+                // Lunar perilune encounter: brilliant gold
+                r = 0.98; g = 0.75; b = 0.14;
+              } else {
+                // Inbound return leg: warm amber-orange
+                const u = Math.min(1, (frac - 0.55) / 0.45);
+                r = 0.96 * (1 - u) + 0.92 * u;
+                g = 0.62 * (1 - u) + 0.35 * u;
+                b = 0.07 * (1 - u) + 0.05 * u;
+              }
+            } else if (activeTrajectory.type === 'direct_loi') {
+              if (frac < 0.82) {
+                r = 0.02; g = 0.71; b = 0.83; // cyan translunar
+              } else {
+                r = 0.06; g = 0.73; b = 0.51; // emerald orbit capture
+              }
             } else {
-              // Inbound return leg: warm amber-orange
-              const u = Math.min(1, (frac - 0.55) / 0.45);
-              r = 0.96 * (1 - u) + 0.92 * u;
-              g = 0.62 * (1 - u) + 0.35 * u;
-              b = 0.07 * (1 - u) + 0.05 * u;
+              // Lunar flyby & escape
+              if (frac < 0.50) {
+                r = 0.02; g = 0.71; b = 0.83; // cyan
+              } else {
+                r = 0.66; g = 0.33; b = 0.97; // purple flyby escape
+              }
             }
-          } else if (activeTrajectory.type === 'direct_loi') {
-            if (frac < 0.82) {
-              r = 0.02; g = 0.71; b = 0.83; // cyan translunar
-            } else {
-              r = 0.06; g = 0.73; b = 0.51; // emerald orbit capture
+
+            // Boost luminance at the trail head right at the spacecraft exhaust
+            if (i >= count - 2) {
+              r = Math.min(1, r * 1.35);
+              g = Math.min(1, g * 1.35);
+              b = Math.min(1, b * 1.35);
             }
-          } else {
-            // Lunar flyby & escape
-            if (frac < 0.50) {
-              r = 0.02; g = 0.71; b = 0.83; // cyan
-            } else {
-              r = 0.66; g = 0.33; b = 0.97; // purple flyby escape
-            }
+
+            colorArray[i * 3] = r;
+            colorArray[i * 3 + 1] = g;
+            colorArray[i * 3 + 2] = b;
           }
 
-          // Boost luminance at the trail head right at the spacecraft exhaust
-          if (i >= trailPts.length - 2) {
-            r = Math.min(1, r * 1.35);
-            g = Math.min(1, g * 1.35);
-            b = Math.min(1, b * 1.35);
-          }
-
-          colors[i * 3] = r;
-          colors[i * 3 + 1] = g;
-          colors[i * 3 + 2] = b;
+          posAttr.needsUpdate = true;
+          colorAttr.needsUpdate = true;
+          geo.setDrawRange(0, count);
+          geo.computeBoundingSphere();
+          line.visible = true;
         }
-
-        transferTrajectoryLineRef.current.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        const mat = transferTrajectoryLineRef.current.material as THREE.LineBasicMaterial;
-        mat.vertexColors = true;
-        mat.needsUpdate = true;
-        transferTrajectoryLineRef.current.visible = true;
       }
 
       // Render 3D Numbered Milestone Badges (1 to 8)
