@@ -183,7 +183,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const ascentPositionsRef = useRef<THREE.Vector3[]>([]);
 
   const transferTrajectoryLineRef = useRef<THREE.Line | null>(null);
-  const inboundTrajectoryLineRef = useRef<THREE.Line | null>(null);
   const milestoneBadgesGroupRef = useRef<THREE.Group | null>(null);
   const spacecraftMarkerRef = useRef<THREE.Group | null>(null);
 
@@ -628,10 +627,12 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
 
     const transferGeo = new THREE.BufferGeometry();
     const transferMat = new THREE.LineBasicMaterial({
-      color: 0x10b981,
+      color: 0xffffff,
+      vertexColors: true,
       linewidth: 2,
     });
     const transferLine = new THREE.Line(transferGeo, transferMat);
+    transferLine.name = 'spacecraft_trajectory_trail';
     scene.add(transferLine);
     transferTrajectoryLineRef.current = transferLine;
 
@@ -1288,24 +1289,110 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         );
       });
 
-      // Render physical trajectory samples directly — no global Catmull-Rom spline distortion
-      // Split into Outbound and Inbound ribbons
-      const splitFrac = activeTrajectory.outboundSplitFraction || 0.52;
-      const splitIdx = Math.floor(splitFrac * rawSplinePts.length);
-      const outboundPts = rawSplinePts.slice(0, splitIdx + 1);
-      const inboundPts = rawSplinePts.slice(splitIdx);
+      // Spacecraft Marker: Continuous time-based interpolation along physical states
+      let scPos = rawSplinePts[0] ? rawSplinePts[0].clone() : new THREE.Vector3();
+      let lowerIdx = 0;
+      let upperIdx = Math.max(0, rawSplinePts.length - 1);
+      const totalDuration = activeTrajectory.points.length > 1
+        ? activeTrajectory.points[activeTrajectory.points.length - 1].t - activeTrajectory.points[0].t
+        : 1;
 
-      if (transferTrajectoryLineRef.current && outboundPts.length > 0) {
-        transferTrajectoryLineRef.current.geometry.setFromPoints(outboundPts);
-        transferTrajectoryLineRef.current.visible = true;
+      if (rawSplinePts.length > 0) {
+        const currentT = activeTrajectory.points[0].t + trajectoryProgress * totalDuration;
+
+        for (let i = 0; i < activeTrajectory.points.length - 1; i++) {
+          if (activeTrajectory.points[i + 1].t >= currentT) {
+            lowerIdx = i;
+            upperIdx = i + 1;
+            break;
+          }
+        }
+
+        const p0 = rawSplinePts[lowerIdx];
+        const p1 = rawSplinePts[upperIdx];
+        const t0 = activeTrajectory.points[lowerIdx].t;
+        const t1 = activeTrajectory.points[upperIdx].t;
+        const alpha = t1 > t0 ? Math.max(0, Math.min(1, (currentT - t0) / (t1 - t0))) : 0;
+
+        scPos = new THREE.Vector3().lerpVectors(p0, p1, alpha);
+
+        if (spacecraftMarkerRef.current) {
+          spacecraftMarkerRef.current.position.copy(scPos);
+          spacecraftMarkerRef.current.visible = true;
+          if (upperIdx < rawSplinePts.length) {
+            spacecraftMarkerRef.current.lookAt(p1);
+          }
+        }
       }
 
-      if (inboundTrajectoryLineRef.current && inboundPts.length > 0) {
-        inboundTrajectoryLineRef.current.geometry.setFromPoints(inboundPts);
-        // Color inbound ribbon based on mission archetype
-        const inbColor = activeTrajectory.type === 'free_return' ? 0xf59e0b : activeTrajectory.type === 'direct_loi' ? 0x06b6d4 : 0x10b981;
-        (inboundTrajectoryLineRef.current.material as THREE.LineBasicMaterial).color.setHex(inbColor);
-        inboundTrajectoryLineRef.current.visible = true;
+      // Draw Trajectory as the Dynamic Trail of the Spaceship
+      const trailPts: THREE.Vector3[] = [];
+      for (let i = 0; i <= lowerIdx; i++) {
+        trailPts.push(rawSplinePts[i]);
+      }
+      trailPts.push(scPos.clone());
+
+      if (transferTrajectoryLineRef.current && trailPts.length > 1) {
+        transferTrajectoryLineRef.current.geometry.setFromPoints(trailPts);
+
+        // Dynamic vertex colors along the trail to distinguish mission phases
+        const colors = new Float32Array(trailPts.length * 3);
+
+        for (let i = 0; i < trailPts.length; i++) {
+          const frac = i < lowerIdx
+            ? (activeTrajectory.points[i].t - activeTrajectory.points[0].t) / (totalDuration || 1)
+            : trajectoryProgress;
+
+          let r = 0.06, g = 0.73, b = 0.51; // emerald default
+          if (activeTrajectory.type === 'free_return') {
+            if (frac < 0.45) {
+              // Outbound translunar leg: cyan -> emerald
+              const u = Math.min(1, frac / 0.45);
+              r = 0.04 * (1 - u) + 0.02 * u;
+              g = 0.72 * (1 - u) + 0.71 * u;
+              b = 0.51 * (1 - u) + 0.83 * u;
+            } else if (frac < 0.55) {
+              // Lunar perilune encounter: brilliant gold
+              r = 0.98; g = 0.75; b = 0.14;
+            } else {
+              // Inbound return leg: warm amber-orange
+              const u = Math.min(1, (frac - 0.55) / 0.45);
+              r = 0.96 * (1 - u) + 0.92 * u;
+              g = 0.62 * (1 - u) + 0.35 * u;
+              b = 0.07 * (1 - u) + 0.05 * u;
+            }
+          } else if (activeTrajectory.type === 'direct_loi') {
+            if (frac < 0.82) {
+              r = 0.02; g = 0.71; b = 0.83; // cyan translunar
+            } else {
+              r = 0.06; g = 0.73; b = 0.51; // emerald orbit capture
+            }
+          } else {
+            // Lunar flyby & escape
+            if (frac < 0.50) {
+              r = 0.02; g = 0.71; b = 0.83; // cyan
+            } else {
+              r = 0.66; g = 0.33; b = 0.97; // purple flyby escape
+            }
+          }
+
+          // Boost luminance at the trail head right at the spacecraft exhaust
+          if (i >= trailPts.length - 2) {
+            r = Math.min(1, r * 1.35);
+            g = Math.min(1, g * 1.35);
+            b = Math.min(1, b * 1.35);
+          }
+
+          colors[i * 3] = r;
+          colors[i * 3 + 1] = g;
+          colors[i * 3 + 2] = b;
+        }
+
+        transferTrajectoryLineRef.current.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        const mat = transferTrajectoryLineRef.current.material as THREE.LineBasicMaterial;
+        mat.vertexColors = true;
+        mat.needsUpdate = true;
+        transferTrajectoryLineRef.current.visible = true;
       }
 
       // Render 3D Numbered Milestone Badges (1 to 8)
@@ -1334,41 +1421,10 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         });
         milestoneBadgesGroupRef.current.visible = true;
       }
-
-      // Spacecraft Marker: Continuous time-based interpolation along physical states
-      if (spacecraftMarkerRef.current && rawSplinePts.length > 0) {
-        spacecraftMarkerRef.current.visible = true;
-        const totalDuration = activeTrajectory.points[activeTrajectory.points.length - 1].t - activeTrajectory.points[0].t;
-        const currentT = activeTrajectory.points[0].t + trajectoryProgress * totalDuration;
-
-        let lowerIdx = 0;
-        let upperIdx = activeTrajectory.points.length - 1;
-        for (let i = 0; i < activeTrajectory.points.length - 1; i++) {
-          if (activeTrajectory.points[i + 1].t >= currentT) {
-            lowerIdx = i;
-            upperIdx = i + 1;
-            break;
-          }
-        }
-
-        const p0 = rawSplinePts[lowerIdx];
-        const p1 = rawSplinePts[upperIdx];
-        const t0 = activeTrajectory.points[lowerIdx].t;
-        const t1 = activeTrajectory.points[upperIdx].t;
-        const alpha = t1 > t0 ? Math.max(0, Math.min(1, (currentT - t0) / (t1 - t0))) : 0;
-
-        const scPos = new THREE.Vector3().lerpVectors(p0, p1, alpha);
-        spacecraftMarkerRef.current.position.copy(scPos);
-
-        if (upperIdx < rawSplinePts.length) {
-          spacecraftMarkerRef.current.lookAt(p1);
-        }
-      }
     } else {
       if (rocketGroupRef.current) rocketGroupRef.current.visible = false;
       if (ascentTrajectoryLineRef.current) ascentTrajectoryLineRef.current.visible = false;
       if (transferTrajectoryLineRef.current) transferTrajectoryLineRef.current.visible = false;
-      if (inboundTrajectoryLineRef.current) inboundTrajectoryLineRef.current.visible = false;
       if (milestoneBadgesGroupRef.current) milestoneBadgesGroupRef.current.visible = false;
       if (spacecraftMarkerRef.current) spacecraftMarkerRef.current.visible = false;
     }
