@@ -100,8 +100,8 @@ export function getMissionMilestones(
         },
         {
           id: 2,
-          label: 'High Earth Orbit',
-          description: 'Moves into high Earth elliptical staging & checkout orbit',
+          label: 'LEO Parking Orbit',
+          description: 'Circular LEO staging and parking orbit checkout',
           tFraction: 0.08,
           timeHours: Number((totalFlightHours * 0.08).toFixed(1)),
           color: '#a855f7',
@@ -588,6 +588,111 @@ export function solveTargetedTLI(
 }
 
 /**
+ * Generates physically continuous pre-TLI departure trajectory points:
+ * 1. Surface Launch: Begins at the spaceport pad on Earth's surface (altitude ~ 0 km, spaceport latitude).
+ * 2. Gravity-Turn Ascent: Smooth, monotonic pitch-over climb from surface to LEO altitude.
+ * 3. Circular LEO Parking Orbit: Stable circular coast at constant altitude (r = r_LEO) before TLI.
+ * 4. Exact C0 continuity at TLI burn ignition.
+ */
+function generatePreTLISequence(
+  spaceport: Spaceport,
+  tliAngle: number,
+  stepTLI: number,
+  departureEpochSeconds: number,
+  totalMissionSeconds: number,
+  totalSteps: number,
+  leoAlt: number,
+  cosInc: number,
+  sinInc: number
+): { t: number; pos: Vector3D; phase: string }[] {
+  const points: { t: number; pos: Vector3D; phase: string }[] = [];
+  const rEarth = EARTH.radius;
+  const elevation = Math.max(0, spaceport.elevation || 0);
+  const rPad = rEarth + elevation;
+  const rLEO = rEarth + leoAlt;
+
+  const latRad = (spaceport.latitude * Math.PI) / 180;
+  const stepAscent = Math.max(10, Math.floor(0.30 * stepTLI));
+
+  // Parking orbit coast angle before TLI (fraction of orbit, ~0.85 rev = ~306 deg)
+  const coastAngle = 0.85 * 2 * Math.PI;
+  const tliInsertAngle = tliAngle - coastAngle;
+
+  // Ground track launch angle downrange from pad (~45 deg)
+  const ascentDownrangeAngle = 0.25 * Math.PI;
+  const launchAngle = tliInsertAngle - ascentDownrangeAngle;
+
+  // Spaceport pad unit vector at spaceport latitude
+  const uPad: Vector3D = {
+    x: Math.cos(latRad) * Math.cos(launchAngle),
+    y: Math.sin(latRad),
+    z: -Math.cos(latRad) * Math.sin(launchAngle),
+  };
+  const padMag = Math.hypot(uPad.x, uPad.y, uPad.z) || 1;
+  uPad.x /= padMag;
+  uPad.y /= padMag;
+  uPad.z /= padMag;
+
+  function getOrbitUnitVector(theta: number): Vector3D {
+    return {
+      x: Math.cos(theta),
+      y: sinInc * Math.sin(theta),
+      z: -cosInc * Math.sin(theta),
+    };
+  }
+
+  for (let s = 0; s < stepTLI; s++) {
+    const t = departureEpochSeconds + (s / totalSteps) * totalMissionSeconds;
+
+    if (s < stepAscent) {
+      // 1. Liftoff and Gravity-Turn Ascent to LEO
+      const tau = s / stepAscent;
+      // Hermite smoothstep for strictly monotonic altitude increase: f(0)=0, f(1)=1, f'(0)=0, f'(1)=0
+      const smoothTau = tau * tau * (3 - 2 * tau);
+      const rCur = rPad + (rLEO - rPad) * smoothTau;
+
+      // Pitch-over direction blending from surface pad normal to orbital plane insertion
+      const thetaAscent = launchAngle + tau * (tliInsertAngle - launchAngle);
+      const uOrb = getOrbitUnitVector(thetaAscent);
+
+      const blendX = (1 - tau) * uPad.x + tau * uOrb.x;
+      const blendY = (1 - tau) * uPad.y + tau * uOrb.y;
+      const blendZ = (1 - tau) * uPad.z + tau * uOrb.z;
+      const blendMag = Math.hypot(blendX, blendY, blendZ) || 1;
+
+      points.push({
+        t,
+        pos: {
+          x: rCur * (blendX / blendMag),
+          y: rCur * (blendY / blendMag),
+          z: rCur * (blendZ / blendMag),
+        },
+        phase: s < Math.floor(stepAscent * 0.4)
+          ? 'Liftoff & Atmospheric Ascent'
+          : 'Gravity-Turn Ascent to LEO',
+      });
+    } else {
+      // 2. Stable Circular LEO Parking Orbit Coast
+      const w = (s - stepAscent) / (stepTLI - stepAscent);
+      const theta = tliInsertAngle + w * (tliAngle - tliInsertAngle);
+      const uOrb = getOrbitUnitVector(theta);
+
+      points.push({
+        t,
+        pos: {
+          x: rLEO * uOrb.x,
+          y: rLEO * uOrb.y,
+          z: rLEO * uOrb.z,
+        },
+        phase: 'LEO Parking Orbit Coast',
+      });
+    }
+  }
+
+  return points;
+}
+
+/**
  * Propagates a seamless, physically continuous Earth-Moon mission trajectory.
  * Incorporates time-dependent RK4 integration with dual differential third-body gravity,
  * multidimensional targeting, vector LOI impulsive insertion, and chord-bounded interpolation.
@@ -609,7 +714,6 @@ function propagateSeamlessTrajectory(
   const rEarth = EARTH.radius;
   const rLEO = rEarth + leoAlt;
 
-  const latRad = (spaceport.latitude * Math.PI) / 180;
   const departureEpochSeconds = launchWindow.openTimeHours * 3600;
   const totalMissionSeconds = flightTimeHours * 3600;
 
@@ -648,34 +752,18 @@ function propagateSeamlessTrajectory(
       z: -vTLIMag * cosInc * Math.cos(tliAngle),
     };
 
-    const uPad: Vector3D = {
-      x: Math.cos(latRad) * Math.cos(tliAngle - Math.PI * 0.4),
-      y: Math.sin(latRad),
-      z: -Math.cos(latRad) * Math.sin(tliAngle - Math.PI * 0.4),
-    };
-    const uTLI: Vector3D = {
-      x: Math.cos(tliAngle),
-      y: sinInc * Math.sin(tliAngle),
-      z: -cosInc * Math.sin(tliAngle),
-    };
-
-    for (let s = 0; s < stepTLI; s++) {
-      const u = s / stepTLI;
-      const rCur = rEarth + u * leoAlt;
-      const nx = (1 - u) * uPad.x + u * uTLI.x;
-      const ny = (1 - u) * uPad.y + u * uTLI.y;
-      const nz = (1 - u) * uPad.z + u * uTLI.z;
-      const nMag = Math.hypot(nx, ny, nz);
-      rawPoints.push({
-        t: departureEpochSeconds + (s / totalSteps) * totalMissionSeconds,
-        pos: {
-          x: rCur * (nx / nMag),
-          y: rCur * (ny / nMag),
-          z: rCur * (nz / nMag),
-        },
-        phase: 'Liftoff & LEO Staging Orbit',
-      });
-    }
+    const preTLIPoints = generatePreTLISequence(
+      spaceport,
+      tliAngle,
+      stepTLI,
+      departureEpochSeconds,
+      totalMissionSeconds,
+      totalSteps,
+      leoAlt,
+      cosInc,
+      sinInc
+    );
+    rawPoints.push(...preTLIPoints);
 
     let rk4State = { r: { ...pTLI }, v: { ...vTLI } };
     rawPoints.push({
@@ -741,34 +829,18 @@ function propagateSeamlessTrajectory(
       z: -vTLIMag * cosInc * Math.cos(tliAngle),
     };
 
-    const uPad: Vector3D = {
-      x: Math.cos(latRad) * Math.cos(tliAngle - Math.PI * 0.4),
-      y: Math.sin(latRad),
-      z: -Math.cos(latRad) * Math.sin(tliAngle - Math.PI * 0.4),
-    };
-    const uTLI: Vector3D = {
-      x: Math.cos(tliAngle),
-      y: sinInc * Math.sin(tliAngle),
-      z: -cosInc * Math.sin(tliAngle),
-    };
-
-    for (let s = 0; s < stepTLI; s++) {
-      const u = s / stepTLI;
-      const rCur = rEarth + u * leoAlt;
-      const nx = (1 - u) * uPad.x + u * uTLI.x;
-      const ny = (1 - u) * uPad.y + u * uTLI.y;
-      const nz = (1 - u) * uPad.z + u * uTLI.z;
-      const nMag = Math.hypot(nx, ny, nz);
-      rawPoints.push({
-        t: departureEpochSeconds + (s / totalSteps) * totalMissionSeconds,
-        pos: {
-          x: rCur * (nx / nMag),
-          y: rCur * (ny / nMag),
-          z: rCur * (nz / nMag),
-        },
-        phase: u < 0.5 ? 'Lift-off & Ascent' : 'LEO Parking Orbit Staging',
-      });
-    }
+    const preTLIPoints = generatePreTLISequence(
+      spaceport,
+      tliAngle,
+      stepTLI,
+      departureEpochSeconds,
+      totalMissionSeconds,
+      totalSteps,
+      leoAlt,
+      cosInc,
+      sinInc
+    );
+    rawPoints.push(...preTLIPoints);
 
     let rk4State = { r: { ...pTLI }, v: { ...vTLI } };
     rawPoints.push({
@@ -908,24 +980,18 @@ function propagateSeamlessTrajectory(
     const pTLI: Vector3D = { x: rLEO * Math.cos(tliAngle), y: rLEO * sinInc * Math.sin(tliAngle), z: -rLEO * cosInc * Math.sin(tliAngle) };
     const vTLI: Vector3D = { x: -10920 * Math.sin(tliAngle), y: 10920 * sinInc * Math.cos(tliAngle), z: -10920 * cosInc * Math.cos(tliAngle) };
 
-    for (let s = 0; s < stepTLI; s++) {
-      const u = s / stepTLI;
-      const rCur = rEarth + 200000 + 72000000 * Math.sin(u * Math.PI);
-      const angle = tliAngle - Math.PI * 2 * (1 - u);
-      const rawX = Math.cos(angle) * Math.cos(latRad * (1 - u * 0.7));
-      const rawY = sinInc * Math.sin(angle);
-      const rawZ = -cosInc * Math.sin(angle) * Math.cos(latRad * (1 - u * 0.7));
-      const rawMag = Math.hypot(rawX, rawY, rawZ);
-      rawPoints.push({
-        t: departureEpochSeconds + (s / totalSteps) * totalMissionSeconds,
-        pos: {
-          x: rCur * (rawX / rawMag),
-          y: rCur * (rawY / rawMag),
-          z: rCur * (rawZ / rawMag),
-        },
-        phase: u < 0.35 ? 'Atmospheric Ascent to LEO' : 'High Earth Orbit (HEO) Staging',
-      });
-    }
+    const preTLIPoints = generatePreTLISequence(
+      spaceport,
+      tliAngle,
+      stepTLI,
+      departureEpochSeconds,
+      totalMissionSeconds,
+      totalSteps,
+      leoAlt,
+      cosInc,
+      sinInc
+    );
+    rawPoints.push(...preTLIPoints);
 
     const outDur = tSwingIn - tTLI;
     for (let s = stepTLI; s <= stepSwingIn; s++) {

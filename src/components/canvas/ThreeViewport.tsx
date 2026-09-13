@@ -1298,8 +1298,15 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
         }
 
         const dE = pt.distanceToEarth;
-        const u = Math.max(0, (dE - EARTH.radius) / (MOON.semiMajorAxis - EARTH.radius));
-        const rScene = rEarthVisual + u * (rMoonVisual - rEarthVisual);
+        const h = Math.max(0, dE - EARTH.radius);
+        const rLeoVisual = rEarthVisual * 1.08;
+        let rScene = rEarthVisual;
+        if (h <= 200000) {
+          rScene = rEarthVisual + (h / 200000) * (rLeoVisual - rEarthVisual);
+        } else {
+          const u = Math.max(0, Math.min(1, (dE - (EARTH.radius + 200000)) / (MOON.semiMajorAxis - (EARTH.radius + 200000))));
+          rScene = rLeoVisual + u * (rMoonVisual - rLeoVisual);
+        }
         const pMag = Math.sqrt(pt.position.x * pt.position.x + pt.position.y * pt.position.y + pt.position.z * pt.position.z) || 1;
 
         return new THREE.Vector3(

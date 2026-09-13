@@ -379,3 +379,89 @@ test('Trajectory Solver - Surface Collision Avoidance', () => {
     assert.ok(pt.distanceToMoon >= MOON.radius, `Spacecraft must not intersect Moon: step ${i} dist was ${pt.distanceToMoon} m`);
   }
 });
+
+test('Trajectory Solver - Departure Physics: Surface Launch, Monotonic Ascent & LEO Parking Orbit', () => {
+  const ksc = SPACEPORTS.find(s => s.id === 'ksc')!;
+  const archetypes = ['free_return', 'direct_loi', 'lunar_flyby'] as const;
+  const leoAlt = 200000;
+
+  for (const type of archetypes) {
+    const traj = solveEarthMoonTrajectory(type, ksc, leoAlt, 72, 0, 0);
+    const pts = traj.points;
+
+    // 1. First point begins at selected spaceport on Earth's surface
+    const p0 = pts[0];
+    const initialAlt = p0.distanceToEarth - EARTH.radius;
+    assert.ok(
+      initialAlt < 1000,
+      `${type} first point must be on Earth surface (h < 1 km): actual ${initialAlt.toFixed(1)} m`
+    );
+    assert.equal(p0.altitudeEarthKm, 0, `${type} first point altitudeEarthKm must be 0`);
+    
+    // Spaceport latitude alignment
+    const initialLatDeg = (Math.asin(p0.position.y / p0.distanceToEarth) * 180) / Math.PI;
+    assert.ok(
+      Math.abs(initialLatDeg - ksc.latitude) < 0.1,
+      `${type} initial latitude (${initialLatDeg.toFixed(2)}°) must match spaceport latitude (${ksc.latitude}°)`
+    );
+
+    // Find TLI step index
+    const tliIndex = pts.findIndex((p, idx) => idx > 0 && (p.phase.includes('TLI') || p.phase.includes('Burn')));
+    assert.ok(tliIndex > 0, `${type} must contain a designated TLI burn transition`);
+
+    // 2. Pre-TLI altitude bounds: strictly bounded by [0, rLEO + 1 km] (No cardioid or HEO excursions)
+    let maxPreTliAlt = 0;
+    for (let i = 0; i < tliIndex; i++) {
+      const altM = pts[i].distanceToEarth - EARTH.radius;
+      if (altM > maxPreTliAlt) maxPreTliAlt = altM;
+      assert.ok(
+        altM <= leoAlt + 1000,
+        `${type} pre-TLI step ${i} altitude (${(altM / 1000).toFixed(1)} km) exceeded LEO altitude boundary (${leoAlt / 1000} km)`
+      );
+    }
+    assert.ok(
+      maxPreTliAlt <= leoAlt + 500,
+      `${type} maximum pre-TLI altitude (${(maxPreTliAlt / 1000).toFixed(1)} km) must not exceed LEO staging radius`
+    );
+
+    // 3. Ascent phase altitude monotonicity
+    const ascentPoints = pts.slice(0, tliIndex).filter(p => p.phase.includes('Ascent'));
+    assert.ok(ascentPoints.length > 5, `${type} must have dedicated atmospheric and gravity-turn ascent points`);
+    for (let i = 1; i < ascentPoints.length; i++) {
+      assert.ok(
+        ascentPoints[i].distanceToEarth >= ascentPoints[i - 1].distanceToEarth - 1.0,
+        `${type} ascent altitude must increase monotonically: step ${i} (${ascentPoints[i].distanceToEarth} m) < prev (${ascentPoints[i - 1].distanceToEarth} m)`
+      );
+    }
+
+    // 4. Stable Circular LEO Parking Orbit (constant altitude within +/- 1 km)
+    const parkingPoints = pts.slice(0, tliIndex).filter(p => p.phase.includes('Parking Orbit'));
+    assert.ok(parkingPoints.length > 10, `${type} must spend multiple steps coasting in circular LEO parking orbit`);
+    for (let i = 0; i < parkingPoints.length; i++) {
+      const altM = parkingPoints[i].distanceToEarth - EARTH.radius;
+      const deviation = Math.abs(altM - leoAlt);
+      assert.ok(
+        deviation < 1000,
+        `${type} parking orbit point ${i} altitude (${(altM / 1000).toFixed(2)} km) deviated from nominal LEO altitude by ${deviation.toFixed(1)} m`
+      );
+    }
+
+    // 5. C0 Continuity at TLI burn ignition
+    const pLastParking = pts[tliIndex - 1];
+    const pTLI = pts[tliIndex];
+    const tliStepTravel = Math.hypot(
+      pTLI.position.x - pLastParking.position.x,
+      pTLI.position.y - pLastParking.position.y,
+      pTLI.position.z - pLastParking.position.z
+    );
+    assert.ok(
+      tliStepTravel < 1000000,
+      `${type} step travel into TLI (${(tliStepTravel / 1000).toFixed(1)} km) must be continuous without spatial jump`
+    );
+    assert.ok(
+      Math.abs(pTLI.distanceToEarth - (EARTH.radius + leoAlt)) < 1000,
+      `${type} TLI burn point radius must match LEO departure radius`
+    );
+  }
+});
+
