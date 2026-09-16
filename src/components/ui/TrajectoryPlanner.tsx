@@ -3,7 +3,7 @@ import type { Spaceport } from '../../types/spaceport';
 import type { EarthMoonTrajectory, MissionTrajectoryType, LaunchWindow } from '../../types/trajectory';
 import { SPACEPORTS } from '../../data/spaceports';
 import { solveEarthMoonTrajectory } from '../../physics/trajectorySolver';
-import { Compass, Play, Calendar, CheckCircle2, Clock } from 'lucide-react';
+import { Compass, Play, Calendar, CheckCircle2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TrajectoryPlannerProps {
   selectedSpaceport: Spaceport;
@@ -13,6 +13,8 @@ interface TrajectoryPlannerProps {
   trajectoryProgress: number;
   onChangeProgress: (p: number) => void;
   onSelectLaunchWindow?: (win: LaunchWindow) => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export const TrajectoryPlanner: React.FC<TrajectoryPlannerProps> = ({
@@ -23,7 +25,13 @@ export const TrajectoryPlanner: React.FC<TrajectoryPlannerProps> = ({
   trajectoryProgress,
   onChangeProgress,
   onSelectLaunchWindow,
+  isCollapsed,
+  onToggleCollapse,
 }) => {
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const collapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
+  const toggleCollapse = onToggleCollapse || (() => setInternalCollapsed(!internalCollapsed));
+
   const [trajType, setTrajType] = useState<MissionTrajectoryType>(activeTrajectory.type);
   const [flightTimeHours, setFlightTimeHours] = useState<number>(activeTrajectory.timeOfFlightHours);
   const [selectedWindowIdx, setSelectedWindowIdx] = useState<number>(activeTrajectory.selectedWindowIndex || 0);
@@ -53,6 +61,24 @@ export const TrajectoryPlanner: React.FC<TrajectoryPlannerProps> = ({
     Math.min(activeTrajectory.points.length - 1, Math.floor(trajectoryProgress * (activeTrajectory.points.length - 1)))
   ];
 
+  if (collapsed) {
+    return (
+      <div className="absolute top-16 left-4 z-20">
+        <button
+          onClick={toggleCollapse}
+          className="flex items-center space-x-2 px-3.5 py-2.5 bg-gray-950/90 backdrop-blur-md border border-gray-800/80 rounded-2xl text-gray-200 shadow-2xl hover:border-purple-500/50 hover:bg-gray-900/90 transition-all group"
+          title="Expand Trajectory Planner"
+        >
+          <Compass className="w-4 h-4 text-purple-400 group-hover:rotate-45 transition-transform" />
+          <span className="font-semibold text-xs uppercase tracking-wider text-gray-300">
+            Trajectory Planner
+          </span>
+          <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-purple-400 transition-colors ml-1" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="absolute top-16 left-4 z-20 w-96 bg-gray-950/85 backdrop-blur-md border border-gray-800/80 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-4 max-h-[calc(100vh-130px)] overflow-y-auto font-sans">
       <div className="flex items-center justify-between pb-2 border-b border-gray-800">
@@ -62,6 +88,13 @@ export const TrajectoryPlanner: React.FC<TrajectoryPlannerProps> = ({
             Earth-Moon Trajectory & Launch Windows
           </span>
         </div>
+        <button
+          onClick={toggleCollapse}
+          className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800/80 rounded-lg transition-colors"
+          title="Collapse panel"
+        >
+          <ChevronUp className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Spaceport Selector */}

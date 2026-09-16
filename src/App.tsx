@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ThreeViewport } from './components/canvas/ThreeViewport';
-import type { ActiveAppMode, CameraPreset } from './components/canvas/ThreeViewport';
+import type { ActiveAppMode, CameraPreset, ThreeViewportHandle } from './components/canvas/ThreeViewport';
 import { Header } from './components/ui/Header';
 import { TimeControls } from './components/ui/TimeControls';
 import { SystemViewControls } from './components/ui/SystemViewControls';
@@ -8,6 +8,7 @@ import { LaunchViewControls } from './components/ui/LaunchViewControls';
 import { TrajectoryPlanner } from './components/ui/TrajectoryPlanner';
 import { MissionInfographicLegend } from './components/ui/MissionInfographicLegend';
 import { TelemetryHUD } from './components/ui/TelemetryHUD';
+import { ZoomControls } from './components/ui/ZoomControls';
 import { FlightChartModal } from './components/ui/FlightChartModal';
 import { InfoModal } from './components/ui/InfoModal';
 
@@ -23,8 +24,25 @@ import { simulateRocketAscentStep, calculateTotalRocketDeltaV } from './physics/
 import { solveEarthMoonTrajectory } from './physics/trajectorySolver';
 
 export function App() {
+  const viewportRef = useRef<ThreeViewportHandle>(null);
+
   const [appMode, setAppMode] = useState<ActiveAppMode>('system');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('free');
+
+  const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState<boolean>(false);
+  const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState<boolean>(false);
+
+  const isDecluttered = isLeftPanelCollapsed && isRightPanelCollapsed;
+
+  const handleToggleDeclutter = () => {
+    if (isDecluttered) {
+      setIsLeftPanelCollapsed(false);
+      setIsRightPanelCollapsed(false);
+    } else {
+      setIsLeftPanelCollapsed(true);
+      setIsRightPanelCollapsed(true);
+    }
+  };
 
   const [simTimeSeconds, setSimTimeSeconds] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
@@ -218,6 +236,7 @@ export function App() {
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-gray-950 text-gray-100 font-sans select-none">
       <ThreeViewport
+        ref={viewportRef}
         appMode={appMode}
         ephemeris={ephemeris}
         referenceFrame={referenceFrame}
@@ -249,6 +268,8 @@ export function App() {
         onOpenInfo={() => setIsInfoOpen(true)}
         onOpenCharts={() => setIsChartsOpen(true)}
         onResetSimulation={handleResetSimulation}
+        isDecluttered={isDecluttered}
+        onToggleDeclutter={handleToggleDeclutter}
       />
 
       {appMode === 'system' && (
@@ -280,6 +301,8 @@ export function App() {
           showLineOfNodes={showLineOfNodes}
           onToggleLineOfNodes={() => setShowLineOfNodes(!showLineOfNodes)}
           ephemeris={ephemeris}
+          isCollapsed={isLeftPanelCollapsed}
+          onToggleCollapse={() => setIsLeftPanelCollapsed(!isLeftPanelCollapsed)}
         />
       )}
 
@@ -298,6 +321,8 @@ export function App() {
           onChangeThrottle={setUserThrottle}
           manualPitch={manualPitch}
           onChangeManualPitch={setManualPitch}
+          isCollapsed={isLeftPanelCollapsed}
+          onToggleCollapse={() => setIsLeftPanelCollapsed(!isLeftPanelCollapsed)}
         />
       )}
 
@@ -313,6 +338,8 @@ export function App() {
             onSelectLaunchWindow={(win) => {
               setSimTimeSeconds(win.openTimeHours * 3600);
             }}
+            isCollapsed={isLeftPanelCollapsed}
+            onToggleCollapse={() => setIsLeftPanelCollapsed(!isLeftPanelCollapsed)}
           />
           <MissionInfographicLegend
             activeTrajectory={activeTrajectory}
@@ -323,11 +350,19 @@ export function App() {
                 setSimTimeSeconds(activeTrajectory.points[m.pointIndex || 0].t);
               }
             }}
+            isCollapsed={isRightPanelCollapsed}
+            onToggleCollapse={() => setIsRightPanelCollapsed(!isRightPanelCollapsed)}
           />
         </>
       )}
 
-      {appMode === 'launch' && <TelemetryHUD telemetry={rocketTelemetry} />}
+      {appMode === 'launch' && (
+        <TelemetryHUD
+          telemetry={rocketTelemetry}
+          isCollapsed={isRightPanelCollapsed}
+          onToggleCollapse={() => setIsRightPanelCollapsed(!isRightPanelCollapsed)}
+        />
+      )}
 
       {appMode !== 'launch' && (
         <TimeControls
@@ -339,6 +374,14 @@ export function App() {
           onResetTime={() => setSimTimeSeconds(0)}
         />
       )}
+
+      <ZoomControls
+        onZoomIn={() => viewportRef.current?.zoomIn()}
+        onZoomOut={() => viewportRef.current?.zoomOut()}
+        onResetZoom={() => viewportRef.current?.resetZoom()}
+        isDecluttered={isDecluttered}
+        onToggleDeclutter={handleToggleDeclutter}
+      />
 
       <InfoModal isOpen={isInfoOpen} onClose={() => setIsInfoOpen(false)} />
       <FlightChartModal isOpen={isChartsOpen} onClose={() => setIsChartsOpen(false)} />

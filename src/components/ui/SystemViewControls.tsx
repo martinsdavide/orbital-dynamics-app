@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { ReferenceFrame, ScaleMode, EphemerisState } from '../../types/celestial';
-import { Layers, Globe2, Compass, Sun, ShieldAlert, Disc, Eye } from 'lucide-react';
+import { Layers, Globe2, Compass, Sun, ShieldAlert, Disc, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface SystemViewControlsProps {
   referenceFrame: ReferenceFrame;
@@ -30,6 +30,8 @@ interface SystemViewControlsProps {
   showLineOfNodes: boolean;
   onToggleLineOfNodes: () => void;
   ephemeris: EphemerisState;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
@@ -60,7 +62,31 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   showLineOfNodes,
   onToggleLineOfNodes,
   ephemeris,
+  isCollapsed,
+  onToggleCollapse,
 }) => {
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const collapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
+  const toggleCollapse = onToggleCollapse || (() => setInternalCollapsed(!internalCollapsed));
+
+  if (collapsed) {
+    return (
+      <div className="absolute top-16 left-4 z-20">
+        <button
+          onClick={toggleCollapse}
+          className="flex items-center space-x-2 px-3.5 py-2.5 bg-gray-950/90 backdrop-blur-md border border-gray-800/80 rounded-2xl text-gray-200 shadow-2xl hover:border-blue-500/50 hover:bg-gray-900/90 transition-all group"
+          title="Expand Orbital System Settings"
+        >
+          <Layers className="w-4 h-4 text-blue-400 group-hover:rotate-12 transition-transform" />
+          <span className="font-semibold text-xs uppercase tracking-wider text-gray-300">
+            Orbital System
+          </span>
+          <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-blue-400 transition-colors ml-1" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="absolute top-16 left-4 z-20 w-84 bg-gray-950/85 backdrop-blur-md border border-gray-800/80 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-4 max-h-[calc(100vh-130px)] overflow-y-auto font-sans">
       <div className="flex items-center justify-between pb-2 border-b border-gray-800">
@@ -70,6 +96,13 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
             Orbital System Settings
           </span>
         </div>
+        <button
+          onClick={toggleCollapse}
+          className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800/80 rounded-lg transition-colors"
+          title="Collapse panel"
+        >
+          <ChevronUp className="w-4 h-4" />
+        </button>
       </div>
 
       <div className="space-y-1.5">

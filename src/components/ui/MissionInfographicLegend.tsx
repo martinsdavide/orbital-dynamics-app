@@ -1,17 +1,26 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { EarthMoonTrajectory, MissionMilestone } from '../../types/trajectory';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface MissionInfographicLegendProps {
   activeTrajectory: EarthMoonTrajectory;
   trajectoryProgress: number;
   onSelectMilestone: (m: MissionMilestone) => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export const MissionInfographicLegend: React.FC<MissionInfographicLegendProps> = ({
   activeTrajectory,
   trajectoryProgress,
   onSelectMilestone,
+  isCollapsed,
+  onToggleCollapse,
 }) => {
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const collapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
+  const toggleCollapse = onToggleCollapse || (() => setInternalCollapsed(!internalCollapsed));
+
   const milestones = activeTrajectory.milestones || [];
   const outboundMilestones = milestones.filter(
     (m) => m.category === 'outbound' || m.id <= 4
@@ -34,6 +43,27 @@ export const MissionInfographicLegend: React.FC<MissionInfographicLegendProps> =
 
   const activeMilestone = milestones[currentIdx] || milestones[0];
 
+  if (collapsed) {
+    return (
+      <div className="absolute top-16 right-4 z-20">
+        <button
+          onClick={toggleCollapse}
+          className="flex items-center space-x-2 px-3.5 py-2.5 bg-gray-950/90 backdrop-blur-md border border-gray-800/90 rounded-2xl text-gray-200 shadow-2xl hover:border-purple-500/50 hover:bg-gray-900/90 transition-all group font-sans"
+          title="Expand Mission Flight Profile"
+        >
+          <span className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-pulse" />
+          <span className="font-bold text-xs uppercase tracking-wider text-gray-300">
+            Mission Timeline
+          </span>
+          <span className="text-[11px] text-purple-300 font-mono px-1.5 py-0.5 bg-purple-950/50 rounded border border-purple-800/50">
+            {Math.round(trajectoryProgress * 100)}%
+          </span>
+          <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-purple-400 transition-colors ml-1" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="absolute top-16 right-4 z-20 w-[420px] bg-gray-950/90 backdrop-blur-lg border border-gray-800/90 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-3 font-sans max-h-[calc(100vh-120px)] overflow-y-auto">
       {/* Infographic Header Title */}
@@ -46,6 +76,13 @@ export const MissionInfographicLegend: React.FC<MissionInfographicLegendProps> =
             Mission Timeline & Sequential Cislunar Flight Profile
           </p>
         </div>
+        <button
+          onClick={toggleCollapse}
+          className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800/80 rounded-lg transition-colors ml-2"
+          title="Collapse panel"
+        >
+          <ChevronUp className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Two-Tone Legend Key */}

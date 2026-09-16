@@ -1,13 +1,46 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { RocketTelemetry } from '../../types/rocket';
 import { EARTH } from '../../physics/constants';
-import { Activity } from 'lucide-react';
+import { Activity, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TelemetryHUDProps {
   telemetry: RocketTelemetry;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({ telemetry }) => {
+export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
+  telemetry,
+  isCollapsed,
+  onToggleCollapse,
+}) => {
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const collapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
+  const toggleCollapse = onToggleCollapse || (() => setInternalCollapsed(!internalCollapsed));
+
+  if (collapsed) {
+    return (
+      <div className="absolute top-16 right-4 z-20">
+        <button
+          onClick={toggleCollapse}
+          className="flex items-center space-x-2 px-3.5 py-2.5 bg-gray-950/90 backdrop-blur-md border border-gray-800/80 rounded-2xl text-gray-200 shadow-2xl hover:border-cyan-500/50 hover:bg-gray-900/90 transition-all group font-mono"
+          title="Expand Live Flight Telemetry"
+        >
+          <Activity className="w-4 h-4 text-cyan-400 animate-pulse" />
+          <span className="font-bold text-xs uppercase tracking-wider text-gray-300">
+            Telemetry
+          </span>
+          <span className="text-[11px] text-cyan-300 font-bold px-1.5 py-0.5 bg-cyan-950/50 rounded border border-cyan-800/50">
+            {telemetry.altitude < 100000
+              ? `${(telemetry.altitude / 1000).toFixed(1)} km`
+              : `${Math.round(telemetry.altitude / 1000)} km`}
+          </span>
+          <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-cyan-400 transition-colors ml-1" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="absolute top-16 right-4 z-20 w-80 bg-gray-950/85 backdrop-blur-md border border-gray-800/80 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-3 font-mono">
       <div className="flex items-center justify-between pb-2 border-b border-gray-800">
@@ -17,15 +50,24 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({ telemetry }) => {
             Live Flight Telemetry
           </span>
         </div>
-        <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-          telemetry.isOrbitAchieved
-            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-            : telemetry.phase === 'pad'
-            ? 'bg-gray-800 text-gray-400'
-            : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-        }`}>
-          {telemetry.isOrbitAchieved ? 'ORBIT INSERTION' : telemetry.phase.toUpperCase().replace('_', ' ')}
-        </span>
+        <div className="flex items-center space-x-2">
+          <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+            telemetry.isOrbitAchieved
+              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
+              : telemetry.phase === 'pad'
+              ? 'bg-gray-800 text-gray-400'
+              : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+          }`}>
+            {telemetry.isOrbitAchieved ? 'ORBIT INSERTION' : telemetry.phase.toUpperCase().replace('_', ' ')}
+          </span>
+          <button
+            onClick={toggleCollapse}
+            className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800/80 rounded-lg transition-colors"
+            title="Collapse panel"
+          >
+            <ChevronUp className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-xs">

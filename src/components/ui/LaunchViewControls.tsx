@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 import { SPACEPORTS } from '../../data/spaceports';
 import { ROCKET_PRESETS } from '../../data/rockets';
-import { Rocket, MapPin, Gauge, Flame, AlertTriangle } from 'lucide-react';
+import { Rocket, MapPin, Gauge, Flame, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface LaunchViewControlsProps {
   selectedSpaceport: Spaceport;
@@ -19,6 +19,8 @@ interface LaunchViewControlsProps {
   onChangeThrottle: (val: number) => void;
   manualPitch: number;
   onChangeManualPitch: (val: number) => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
@@ -35,8 +37,31 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
   onChangeThrottle,
   manualPitch,
   onChangeManualPitch,
+  isCollapsed,
+  onToggleCollapse,
 }) => {
   const isPad = rocketTelemetry.phase === 'pad';
+  const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const collapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
+  const toggleCollapse = onToggleCollapse || (() => setInternalCollapsed(!internalCollapsed));
+
+  if (collapsed) {
+    return (
+      <div className="absolute top-16 left-4 z-20">
+        <button
+          onClick={toggleCollapse}
+          className="flex items-center space-x-2 px-3.5 py-2.5 bg-gray-950/90 backdrop-blur-md border border-gray-800/80 rounded-2xl text-gray-200 shadow-2xl hover:border-cyan-500/50 hover:bg-gray-900/90 transition-all group"
+          title="Expand Launch Operations Console"
+        >
+          <Rocket className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
+          <span className="font-semibold text-xs uppercase tracking-wider text-gray-300">
+            Launch Console
+          </span>
+          <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-cyan-400 transition-colors ml-1" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="absolute top-16 left-4 z-20 w-80 bg-gray-950/85 backdrop-blur-md border border-gray-800/80 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-4 max-h-[calc(100vh-130px)] overflow-y-auto">
@@ -47,6 +72,13 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
             Launch Operations Console
           </span>
         </div>
+        <button
+          onClick={toggleCollapse}
+          className="p-1 text-gray-400 hover:text-gray-200 hover:bg-gray-800/80 rounded-lg transition-colors"
+          title="Collapse panel"
+        >
+          <ChevronUp className="w-4 h-4" />
+        </button>
       </div>
 
       <div className="space-y-1.5">

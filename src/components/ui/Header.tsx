@@ -1,5 +1,5 @@
 import React from 'react';
-import { Orbit, Rocket, Compass, Eye, Info, BarChart3, RotateCcw } from 'lucide-react';
+import { Orbit, Rocket, Compass, Eye, EyeOff, Info, BarChart3, RotateCcw } from 'lucide-react';
 import type { ActiveAppMode, CameraPreset } from '../canvas/ThreeViewport';
 
 interface HeaderProps {
@@ -10,6 +10,8 @@ interface HeaderProps {
   onOpenInfo: () => void;
   onOpenCharts: () => void;
   onResetSimulation: () => void;
+  isDecluttered?: boolean;
+  onToggleDeclutter?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -20,6 +22,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenInfo,
   onOpenCharts,
   onResetSimulation,
+  isDecluttered = false,
+  onToggleDeclutter,
 }) => {
   return (
     <header className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-2.5 bg-gray-950/80 backdrop-blur-md border-b border-gray-800/80 text-gray-100 shadow-xl">
@@ -109,6 +113,20 @@ export const Header: React.FC<HeaderProps> = ({
             title="Telemetry Graphs"
           >
             <BarChart3 className="w-4 h-4 text-cyan-400" />
+          </button>
+        )}
+
+        {onToggleDeclutter && (
+          <button
+            onClick={onToggleDeclutter}
+            className={`p-1.5 rounded-lg transition-colors border ${
+              isDecluttered
+                ? 'bg-blue-600/30 text-blue-400 border-blue-500/50'
+                : 'text-gray-300 hover:text-white bg-gray-900/80 hover:bg-gray-800 border-gray-800'
+            }`}
+            title={isDecluttered ? 'Restore Control Panels' : 'Declutter View (Collapse Panels)'}
+          >
+            {isDecluttered ? <Eye className="w-4 h-4 text-blue-400" /> : <EyeOff className="w-4 h-4" />}
           </button>
         )}
 

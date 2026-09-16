@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import type { EphemerisState, ReferenceFrame, ScaleMode } from '../../types/celestial';
 import type { Spaceport } from '../../types/spaceport';
@@ -101,6 +101,12 @@ const MAX_TRAIL_POINTS = 4000;
 
 export type CameraPreset = 'free' | 'earth' | 'moon' | 'sun' | 'rocket' | 'spaceport' | 'earthrise' | 'infographic';
 
+export interface ThreeViewportHandle {
+  zoomIn: (factor?: number) => void;
+  zoomOut: (factor?: number) => void;
+  resetZoom: () => void;
+}
+
 interface ThreeViewportProps {
   appMode: ActiveAppMode;
   ephemeris: EphemerisState;
@@ -125,28 +131,29 @@ interface ThreeViewportProps {
   trajectoryProgress: number;
 }
 
-export const ThreeViewport: React.FC<ThreeViewportProps> = ({
-  appMode,
-  ephemeris,
-  referenceFrame,
-  scaleMode,
-  showLagrangePoints,
-  showEarthOrbit,
-  showMoonOrbit,
-  showComposedMoonSunOrbit,
-  showDynamicTrails,
-  showLunarSOI,
-  showAtmosphereGlow,
-  showGeocentricSolarOrbit,
-  showEarthUmbraShadow,
-  showGeoLeoBelts,
-  showLineOfNodes,
-  selectedSpaceport,
-  rocketTelemetry,
-  activeTrajectory,
-  cameraPreset,
-  trajectoryProgress,
-}) => {
+export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>((props, ref) => {
+  const {
+    appMode,
+    ephemeris,
+    referenceFrame,
+    scaleMode,
+    showLagrangePoints,
+    showEarthOrbit,
+    showMoonOrbit,
+    showComposedMoonSunOrbit,
+    showDynamicTrails,
+    showLunarSOI,
+    showAtmosphereGlow,
+    showGeocentricSolarOrbit,
+    showEarthUmbraShadow,
+    showGeoLeoBelts,
+    showLineOfNodes,
+    selectedSpaceport,
+    rocketTelemetry,
+    activeTrajectory,
+    cameraPreset,
+    trajectoryProgress,
+  } = props;
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -192,9 +199,37 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
   const isDraggingRef = useRef(false);
   const prevMousePosRef = useRef({ x: 0, y: 0 });
   const cameraSphericalRef = useRef({ radius: 140, theta: Math.PI / 4, phi: Math.PI / 3 });
+  const targetRadiusRef = useRef(140);
   const cameraTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
   const prevFrameRef = useRef<ReferenceFrame>(referenceFrame);
   const prevAppModeRef = useRef<ActiveAppMode>(appMode);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomIn: (factor = 0.7) => {
+        targetRadiusRef.current = Math.max(1.5, targetRadiusRef.current * factor);
+      },
+      zoomOut: (factor = 1.4) => {
+        targetRadiusRef.current = Math.min(35000, targetRadiusRef.current * factor);
+      },
+      resetZoom: () => {
+        const scales = getScalingConfig(scaleMode);
+        let defaultRadius = 140;
+        if (cameraPreset === 'earth') defaultRadius = scales.earthCameraRadius;
+        else if (cameraPreset === 'moon') defaultRadius = scales.moonCameraRadius;
+        else if (cameraPreset === 'sun') defaultRadius = scales.sunCameraRadius;
+        else if (cameraPreset === 'spaceport') defaultRadius = scales.earthCameraRadius * 0.55;
+        else if (cameraPreset === 'rocket') defaultRadius = appMode === 'launch' ? 12 : 18;
+        else if (cameraPreset === 'earthrise') defaultRadius = scales.moonCameraRadius * 0.7;
+        else if (cameraPreset === 'infographic') defaultRadius = scales.earthMoonDistance * 1.35;
+        else if (scaleMode === 'true') defaultRadius = scales.earthMoonDistance * 0.75;
+
+        targetRadiusRef.current = defaultRadius;
+      },
+    }),
+    [scaleMode, cameraPreset, appMode]
+  );
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -755,9 +790,9 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const zoomFactor = Math.exp(e.deltaY * 0.0015);
-      cameraSphericalRef.current.radius = Math.max(
+      targetRadiusRef.current = Math.max(
         1.5,
-        Math.min(35000, cameraSphericalRef.current.radius * zoomFactor)
+        Math.min(35000, targetRadiusRef.current * zoomFactor)
       );
     };
 
@@ -788,6 +823,13 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       animId = requestAnimationFrame(animate);
 
       if (cameraRef.current) {
+        const diff = targetRadiusRef.current - cameraSphericalRef.current.radius;
+        if (Math.abs(diff) > 0.005) {
+          cameraSphericalRef.current.radius += diff * 0.15;
+        } else {
+          cameraSphericalRef.current.radius = targetRadiusRef.current;
+        }
+
         const { radius, theta, phi } = cameraSphericalRef.current;
         const target = cameraTargetRef.current;
 
@@ -1470,26 +1512,33 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
     if (cameraPreset === 'earth') {
       cameraTargetRef.current.copy(currentEarthWorldPos);
       cameraSphericalRef.current.radius = scales.earthCameraRadius;
+      targetRadiusRef.current = scales.earthCameraRadius;
     } else if (cameraPreset === 'moon' && moonGroupRef.current) {
       cameraTargetRef.current.copy(currentMoonWorldPos);
       cameraSphericalRef.current.radius = scales.moonCameraRadius;
+      targetRadiusRef.current = scales.moonCameraRadius;
     } else if (cameraPreset === 'sun') {
       cameraTargetRef.current.set(0, 0, 0);
       cameraSphericalRef.current.radius = scales.sunCameraRadius;
+      targetRadiusRef.current = scales.sunCameraRadius;
     } else if (cameraPreset === 'spaceport' && launchpadMarkerRef.current) {
       launchpadMarkerRef.current.getWorldPosition(cameraTargetRef.current);
       cameraSphericalRef.current.radius = scales.earthCameraRadius * 0.55;
+      targetRadiusRef.current = scales.earthCameraRadius * 0.55;
     } else if (cameraPreset === 'rocket') {
       if (appMode === 'launch' && rocketGroupRef.current) {
         cameraTargetRef.current.copy(rocketGroupRef.current.position);
         cameraSphericalRef.current.radius = 12;
+        targetRadiusRef.current = 12;
       } else if (appMode === 'transfer' && spacecraftMarkerRef.current) {
         cameraTargetRef.current.copy(spacecraftMarkerRef.current.position);
         cameraSphericalRef.current.radius = 18;
+        targetRadiusRef.current = 18;
       }
     } else if (cameraPreset === 'earthrise' && moonGroupRef.current) {
       cameraTargetRef.current.copy(currentMoonWorldPos);
       cameraSphericalRef.current.radius = scales.moonCameraRadius * 0.7;
+      targetRadiusRef.current = scales.moonCameraRadius * 0.7;
     } else if (cameraPreset === 'infographic') {
       // Infographic Overview (Frames Earth at top, Moon at bottom in vertical figure-8 perspective)
       const midX = (currentEarthWorldPos.x + currentMoonWorldPos.x) / 2;
@@ -1497,6 +1546,7 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       const midZ = (currentEarthWorldPos.z + currentMoonWorldPos.z) / 2;
       cameraTargetRef.current.set(midX, midY, midZ);
       cameraSphericalRef.current.radius = scales.earthMoonDistance * 1.35;
+      targetRadiusRef.current = scales.earthMoonDistance * 1.35;
       cameraSphericalRef.current.phi = 0.25; // Top-down inclined perspective
       cameraSphericalRef.current.theta = Math.PI / 2;
     }
@@ -1530,4 +1580,6 @@ export const ThreeViewport: React.FC<ThreeViewportProps> = ({
       className="cursor-grab active:cursor-grabbing select-none overflow-hidden"
     />
   );
-};
+});
+
+ThreeViewport.displayName = 'ThreeViewport';
