@@ -24,11 +24,35 @@ export interface LagrangePoint {
   isStable: boolean;
 }
 
+export type PlanetKey =
+  | 'mercury'
+  | 'venus'
+  | 'earth'
+  | 'mars'
+  | 'jupiter'
+  | 'saturn'
+  | 'uranus'
+  | 'neptune';
+
+export interface PlanetState extends CelestialBodyState {
+  key: PlanetKey;
+  semiMajorAxis: number;
+  eccentricity: number;
+  orbitalPeriod: number;
+  inclinationDeg: number;
+  axialTiltDeg: number;
+  colorHex: string;
+  colorNumber: number;
+  distanceFromSunMeters: number;
+  distanceFromEarthMeters: number;
+}
+
 export interface EphemerisState {
   timeSeconds: number;
   sun: CelestialBodyState;
   earth: CelestialBodyState;
   moon: CelestialBodyState;
+  planets: PlanetState[];
   lagrangePoints: LagrangePoint[];
   earthPhaseAngle: number;
   moonPhaseAngle: number;

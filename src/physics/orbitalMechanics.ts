@@ -1,5 +1,5 @@
-import { SUN, EARTH, MOON, SCALING } from './constants.ts';
-import type { Vector3D, CelestialBodyState, LagrangePoint, EphemerisState, ReferenceFrame, ScaleMode } from '../types/celestial.ts';
+import { SUN, EARTH, MOON, SCALING, PLANET_CONFIGS } from './constants.ts';
+import type { Vector3D, CelestialBodyState, PlanetState, LagrangePoint, EphemerisState, ReferenceFrame, ScaleMode } from '../types/celestial.ts';
 
 export function calculateKeplerianOrbit(
   semiMajorAxis: number,
@@ -177,11 +177,72 @@ export function getEphemerisState(timeSeconds: number): EphemerisState {
 
   const moonPhaseAngle = Math.acos(Math.max(-1, Math.min(1, dotProduct(normalize({ x: -earthState.position.x, y: -earthState.position.y, z: -earthState.position.z }), earthToMoon))));
 
+  const planets: PlanetState[] = PLANET_CONFIGS.map((cfg) => {
+    if (cfg.key === 'earth') {
+      const distFromSun = magnitude(earthState.position);
+      return {
+        name: cfg.name,
+        key: 'earth',
+        position: earthState.position,
+        velocity: earthState.velocity,
+        radius: cfg.radius,
+        mass: cfg.mass,
+        rotationAngle: earthState.rotationAngle,
+        semiMajorAxis: cfg.semiMajorAxis,
+        eccentricity: cfg.eccentricity,
+        orbitalPeriod: cfg.orbitalPeriod,
+        inclinationDeg: cfg.inclinationDeg,
+        axialTiltDeg: cfg.axialTiltDeg,
+        colorHex: cfg.colorHex,
+        colorNumber: cfg.color,
+        distanceFromSunMeters: distFromSun,
+        distanceFromEarthMeters: 0,
+      };
+    }
+
+    const orbit = calculateKeplerianOrbit(
+      cfg.semiMajorAxis,
+      cfg.eccentricity,
+      cfg.orbitalPeriod,
+      cfg.inclinationToEclipticRad,
+      timeSeconds,
+      cfg.meanAnomalyJ2000Rad ?? 0,
+      SUN.mu
+    );
+
+    const rotationAngle = (timeSeconds / cfg.rotationPeriod) * (2 * Math.PI);
+    const distFromSun = magnitude(orbit.position);
+    const dx = orbit.position.x - earthState.position.x;
+    const dy = orbit.position.y - earthState.position.y;
+    const dz = orbit.position.z - earthState.position.z;
+    const distFromEarth = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    return {
+      name: cfg.name,
+      key: cfg.key,
+      position: orbit.position,
+      velocity: orbit.velocity,
+      radius: cfg.radius,
+      mass: cfg.mass,
+      rotationAngle,
+      semiMajorAxis: cfg.semiMajorAxis,
+      eccentricity: cfg.eccentricity,
+      orbitalPeriod: cfg.orbitalPeriod,
+      inclinationDeg: cfg.inclinationDeg,
+      axialTiltDeg: cfg.axialTiltDeg,
+      colorHex: cfg.colorHex,
+      colorNumber: cfg.color,
+      distanceFromSunMeters: distFromSun,
+      distanceFromEarthMeters: distFromEarth,
+    };
+  });
+
   return {
     timeSeconds,
     sun: sunState,
     earth: earthState,
     moon: moonState,
+    planets,
     lagrangePoints,
     earthPhaseAngle: (timeSeconds / EARTH.orbitalPeriod) * 360,
     moonPhaseAngle: (moonPhaseAngle * 180) / Math.PI,

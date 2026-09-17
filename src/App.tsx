@@ -63,6 +63,8 @@ export function App() {
   const [showEarthUmbraShadow, setShowEarthUmbraShadow] = useState<boolean>(true);
   const [showGeoLeoBelts, setShowGeoLeoBelts] = useState<boolean>(true);
   const [showLineOfNodes, setShowLineOfNodes] = useState<boolean>(true);
+  const [showPlanetaryOrbits, setShowPlanetaryOrbits] = useState<boolean>(true);
+  const [showPlanetLabels, setShowPlanetLabels] = useState<boolean>(true);
 
   const [selectedSpaceport, setSelectedSpaceport] = useState<Spaceport>(SPACEPORTS[0]);
   const [activeRocket, setActiveRocket] = useState<RocketPreset>(ROCKET_PRESETS[0]);
@@ -252,6 +254,8 @@ export function App() {
         showEarthUmbraShadow={showEarthUmbraShadow}
         showGeoLeoBelts={showGeoLeoBelts}
         showLineOfNodes={showLineOfNodes}
+        showPlanetaryOrbits={showPlanetaryOrbits}
+        showPlanetLabels={showPlanetLabels}
         selectedSpaceport={selectedSpaceport}
         activeRocket={activeRocket}
         rocketTelemetry={rocketTelemetry}
@@ -300,6 +304,10 @@ export function App() {
           onToggleGeoLeoBelts={() => setShowGeoLeoBelts(!showGeoLeoBelts)}
           showLineOfNodes={showLineOfNodes}
           onToggleLineOfNodes={() => setShowLineOfNodes(!showLineOfNodes)}
+          showPlanetaryOrbits={showPlanetaryOrbits}
+          onTogglePlanetaryOrbits={() => setShowPlanetaryOrbits(!showPlanetaryOrbits)}
+          showPlanetLabels={showPlanetLabels}
+          onTogglePlanetLabels={() => setShowPlanetLabels(!showPlanetLabels)}
           ephemeris={ephemeris}
           isCollapsed={isLeftPanelCollapsed}
           onToggleCollapse={() => setIsLeftPanelCollapsed(!isLeftPanelCollapsed)}

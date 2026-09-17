@@ -1,16 +1,26 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
-import type { EphemerisState, ReferenceFrame, ScaleMode } from '../../types/celestial';
+import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey } from '../../types/celestial';
 import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 import type { EarthMoonTrajectory } from '../../types/trajectory';
-import { SCALING, EARTH, MOON, SUN } from '../../physics/constants.ts';
+import { SCALING, EARTH, MOON, SUN, PLANET_CONFIGS, type PlanetConfig } from '../../physics/constants.ts';
 import { calculateLunarOrbitPoint } from '../../physics/nBodyIntegrator.ts';
+import { normalize, magnitude } from '../../physics/orbitalMechanics.ts';
 import {
   createEarthTexture,
   createMoonTexture,
   createSunTexture,
   createParticleTexture,
+  createMercuryTexture,
+  createVenusTexture,
+  createMarsTexture,
+  createJupiterTexture,
+  createSaturnTexture,
+  createSaturnRingTexture,
+  createUranusTexture,
+  createNeptuneTexture,
+  createPlanetLabelTexture,
 } from './TextureGenerator';
 
 // Helper to create glowing numbered milestone badge sprites (1 to 8)
@@ -99,7 +109,22 @@ export function getScalingConfig(scaleMode: ScaleMode) {
 
 const MAX_TRAIL_POINTS = 4000;
 
-export type CameraPreset = 'free' | 'earth' | 'moon' | 'sun' | 'rocket' | 'spaceport' | 'earthrise' | 'infographic';
+export type CameraPreset =
+  | 'free'
+  | 'earth'
+  | 'moon'
+  | 'sun'
+  | 'mercury'
+  | 'venus'
+  | 'mars'
+  | 'jupiter'
+  | 'saturn'
+  | 'uranus'
+  | 'neptune'
+  | 'rocket'
+  | 'spaceport'
+  | 'earthrise'
+  | 'infographic';
 
 export interface ThreeViewportHandle {
   zoomIn: (factor?: number) => void;
@@ -123,6 +148,8 @@ interface ThreeViewportProps {
   showEarthUmbraShadow: boolean;
   showGeoLeoBelts: boolean;
   showLineOfNodes: boolean;
+  showPlanetaryOrbits?: boolean;
+  showPlanetLabels?: boolean;
   selectedSpaceport: Spaceport;
   activeRocket: RocketPreset;
   rocketTelemetry: RocketTelemetry;
@@ -148,6 +175,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     showEarthUmbraShadow,
     showGeoLeoBelts,
     showLineOfNodes,
+    showPlanetaryOrbits = true,
+    showPlanetLabels = true,
     selectedSpaceport,
     rocketTelemetry,
     activeTrajectory,
@@ -196,6 +225,23 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const milestoneBadgesGroupRef = useRef<THREE.Group | null>(null);
   const spacecraftMarkerRef = useRef<THREE.Group | null>(null);
 
+  // Planetary Systems Refs (Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune)
+  const planetRenderNodesRef = useRef<
+    Map<
+      string,
+      {
+        key: PlanetKey;
+        config: PlanetConfig;
+        group: THREE.Group;
+        mesh: THREE.Mesh;
+        ringMesh?: THREE.Mesh;
+        labelSprite: THREE.Sprite;
+        orbitLine: THREE.Line;
+      }
+    >
+  >(new Map());
+  const earthLabelSpriteRef = useRef<THREE.Sprite | null>(null);
+
   const isDraggingRef = useRef(false);
   const prevMousePosRef = useRef({ x: 0, y: 0 });
   const cameraSphericalRef = useRef({ radius: 140, theta: Math.PI / 4, phi: Math.PI / 3 });
@@ -223,6 +269,13 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         else if (cameraPreset === 'rocket') defaultRadius = appMode === 'launch' ? 12 : 18;
         else if (cameraPreset === 'earthrise') defaultRadius = scales.moonCameraRadius * 0.7;
         else if (cameraPreset === 'infographic') defaultRadius = scales.earthMoonDistance * 1.35;
+        else if (cameraPreset === 'mercury') defaultRadius = scaleMode === 'true' ? 6 : 15;
+        else if (cameraPreset === 'venus') defaultRadius = scaleMode === 'true' ? 12 : 25;
+        else if (cameraPreset === 'mars') defaultRadius = scaleMode === 'true' ? 8 : 18;
+        else if (cameraPreset === 'jupiter') defaultRadius = scaleMode === 'true' ? 80 : 55;
+        else if (cameraPreset === 'saturn') defaultRadius = scaleMode === 'true' ? 75 : 50;
+        else if (cameraPreset === 'uranus') defaultRadius = scaleMode === 'true' ? 35 : 32;
+        else if (cameraPreset === 'neptune') defaultRadius = scaleMode === 'true' ? 35 : 30;
         else if (scaleMode === 'true') defaultRadius = scales.earthMoonDistance * 0.75;
 
         targetRadiusRef.current = defaultRadius;
@@ -381,6 +434,19 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     earthMesh.add(launchpadGroup);
     launchpadMarkerRef.current = launchpadGroup;
 
+    // Earth Billboard Label Sprite
+    const earthLabelTex = createPlanetLabelTexture('Earth', '#2b65ec');
+    const earthSpriteMat = new THREE.SpriteMaterial({
+      map: earthLabelTex,
+      transparent: true,
+      depthTest: false,
+    });
+    const earthLabelSprite = new THREE.Sprite(earthSpriteMat);
+    earthLabelSprite.position.set(0, SCALING.visual.earthRadius + 6, 0);
+    earthLabelSprite.scale.set(16, 4, 1);
+    earthGroup.add(earthLabelSprite);
+    earthLabelSpriteRef.current = earthLabelSprite;
+
     // Moon Group
     const moonGroup = new THREE.Group();
     scene.add(moonGroup);
@@ -438,6 +504,128 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       lpMarker.add(haloMesh);
 
       lagrangeGroup.add(lpMarker);
+    });
+
+    // Planetary Systems: Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune
+    planetRenderNodesRef.current.clear();
+    PLANET_CONFIGS.filter((p) => p.key !== 'earth').forEach((cfg) => {
+      const planetGroup = new THREE.Group();
+      planetGroup.name = `planet_group_${cfg.key}`;
+      scene.add(planetGroup);
+
+      let tex: THREE.CanvasTexture;
+      switch (cfg.key) {
+        case 'mercury':
+          tex = createMercuryTexture();
+          break;
+        case 'venus':
+          tex = createVenusTexture();
+          break;
+        case 'mars':
+          tex = createMarsTexture();
+          break;
+        case 'jupiter':
+          tex = createJupiterTexture();
+          break;
+        case 'saturn':
+          tex = createSaturnTexture();
+          break;
+        case 'uranus':
+          tex = createUranusTexture();
+          break;
+        case 'neptune':
+          tex = createNeptuneTexture();
+          break;
+        default:
+          tex = createMercuryTexture();
+          break;
+      }
+
+      const geo = new THREE.SphereGeometry(cfg.visualRadius, 36, 36);
+      const mat = new THREE.MeshStandardMaterial({
+        map: tex,
+        roughness: 0.7,
+        metalness: 0.1,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.z = cfg.axialTiltRad;
+      planetGroup.add(mesh);
+
+      let ringMesh: THREE.Mesh | undefined;
+      if (cfg.hasRings) {
+        // Saturn Rings
+        const ringTex = createSaturnRingTexture();
+        const innerR = cfg.visualRadius * 1.25;
+        const outerR = cfg.visualRadius * 2.35;
+        const ringGeo = new THREE.RingGeometry(innerR, outerR, 64);
+
+        const posAttr = ringGeo.attributes.position;
+        const uvAttr = ringGeo.attributes.uv;
+        for (let i = 0; i < posAttr.count; i++) {
+          const vx = posAttr.getX(i);
+          const vy = posAttr.getY(i);
+          const rDist = Math.sqrt(vx * vx + vy * vy);
+          const u = (rDist - innerR) / (outerR - innerR);
+          uvAttr.setXY(i, u, 0.5);
+        }
+        uvAttr.needsUpdate = true;
+
+        const ringMat = new THREE.MeshStandardMaterial({
+          map: ringTex,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.95,
+          roughness: 0.6,
+        });
+        ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.rotation.x = Math.PI / 2;
+        mesh.add(ringMesh);
+      }
+
+      // Billboard Planet Label Sprite
+      const labelTex = createPlanetLabelTexture(cfg.name, cfg.colorHex);
+      const spriteMat = new THREE.SpriteMaterial({
+        map: labelTex,
+        transparent: true,
+        depthTest: false,
+      });
+      const labelSprite = new THREE.Sprite(spriteMat);
+      labelSprite.position.set(0, cfg.visualRadius + 6, 0);
+      labelSprite.scale.set(16, 4, 1);
+      planetGroup.add(labelSprite);
+
+      // Heliocentric Orbit Path Line
+      const orbitPts: THREE.Vector3[] = [];
+      const segments = 256;
+      for (let s = 0; s <= segments; s++) {
+        const theta = (s / segments) * Math.PI * 2;
+        orbitPts.push(
+          new THREE.Vector3(
+            Math.cos(theta) * cfg.visualDistance,
+            0,
+            Math.sin(theta) * cfg.visualDistance
+          )
+        );
+      }
+      const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPts);
+      const orbitMat = new THREE.LineBasicMaterial({
+        color: cfg.color,
+        transparent: true,
+        opacity: 0.45,
+        linewidth: 1.5,
+      });
+      const orbitLine = new THREE.Line(orbitGeo, orbitMat);
+      scene.add(orbitLine);
+
+      planetRenderNodesRef.current.set(cfg.key, {
+        key: cfg.key,
+        config: cfg,
+        group: planetGroup,
+        mesh,
+        ringMesh,
+        labelSprite,
+        orbitLine,
+      });
     });
 
     // 1. Earth Orbit Line (Heliocentric)
@@ -875,6 +1063,21 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         dom.removeChild(rendererRef.current.domElement);
         rendererRef.current.dispose();
       }
+      planetRenderNodesRef.current.forEach((node) => {
+        scene.remove(node.group);
+        scene.remove(node.orbitLine);
+        node.mesh.geometry.dispose();
+        (node.mesh.material as THREE.Material).dispose();
+        node.orbitLine.geometry.dispose();
+        (node.orbitLine.material as THREE.Material).dispose();
+        node.labelSprite.geometry.dispose();
+        (node.labelSprite.material as THREE.Material).dispose();
+        if (node.ringMesh) {
+          node.ringMesh.geometry.dispose();
+          (node.ringMesh.material as THREE.Material).dispose();
+        }
+      });
+      planetRenderNodesRef.current.clear();
     };
   }, []);
 
@@ -939,6 +1142,27 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       earthOrbitLineRef.current.geometry.setFromPoints(earthOrbitPts);
       earthOrbitLineRef.current.scale.setScalar(1);
     }
+
+    // Rebuild or scale planetary orbit lines and meshes
+    planetRenderNodesRef.current.forEach((node) => {
+      const cfg = node.config;
+      let orbitR = cfg.visualDistance;
+      if (scaleMode === 'true') {
+        orbitR = (cfg.semiMajorAxis / EARTH.semiMajorAxis) * scales.sunEarthDistance;
+        const trueR = 3.0 * (cfg.radius / EARTH.radius);
+        node.mesh.scale.setScalar(trueR / cfg.visualRadius);
+      } else {
+        node.mesh.scale.setScalar(1.0);
+      }
+
+      const pts: THREE.Vector3[] = [];
+      const segs = 256;
+      for (let s = 0; s <= segs; s++) {
+        const theta = (s / segs) * Math.PI * 2;
+        pts.push(new THREE.Vector3(Math.cos(theta) * orbitR, 0, Math.sin(theta) * orbitR));
+      }
+      node.orbitLine.geometry.setFromPoints(pts);
+    });
 
     // Dynamic Rolling 1-Year Lunar Epicycloid Orbit Trail
     // Trails exactly up to 1 Earth orbital revolution (365.25 days).
@@ -1214,6 +1438,50 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     }
     if (lunarSOIMeshRef.current) {
       lunarSOIMeshRef.current.visible = showLunarSOI;
+    }
+
+    // Update planetary positions in current reference frame
+    if (ephemeris.planets) {
+      ephemeris.planets.forEach((p) => {
+        if (p.key === 'earth') {
+          if (earthLabelSpriteRef.current) {
+            earthLabelSpriteRef.current.visible = showPlanetLabels && appMode === 'system';
+          }
+          return;
+        }
+        const node = planetRenderNodesRef.current.get(p.key);
+        if (!node) return;
+
+        const cfg = node.config;
+        const dir = normalize(p.position);
+        const pDist = magnitude(p.position);
+
+        let helioPos = new THREE.Vector3();
+        if (scaleMode === 'true') {
+          const scaleFactor = scales.sunEarthDistance / EARTH.semiMajorAxis;
+          helioPos.set(p.position.x * scaleFactor, p.position.y * scaleFactor, p.position.z * scaleFactor);
+        } else {
+          const distScale = cfg.visualDistance * (pDist / cfg.semiMajorAxis);
+          helioPos.set(dir.x * distScale, dir.y * distScale, dir.z * distScale);
+        }
+
+        let worldPos = new THREE.Vector3();
+        if (referenceFrame === 'heliocentric') {
+          worldPos.copy(helioPos);
+          node.orbitLine.position.set(0, 0, 0);
+          node.orbitLine.visible = showPlanetaryOrbits && appMode === 'system';
+        } else {
+          // Geocentric: relative to Earth
+          worldPos.subVectors(helioPos, currentEarthWorldPos);
+          node.orbitLine.visible = false;
+        }
+
+        node.group.position.copy(worldPos);
+        node.mesh.rotation.y = p.rotationAngle;
+
+        node.group.visible = appMode === 'system';
+        node.labelSprite.visible = showPlanetLabels && appMode === 'system';
+      });
     }
 
     if (lagrangeGroupRef.current) {
@@ -1549,6 +1817,25 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       targetRadiusRef.current = scales.earthMoonDistance * 1.35;
       cameraSphericalRef.current.phi = 0.25; // Top-down inclined perspective
       cameraSphericalRef.current.theta = Math.PI / 2;
+    } else if (
+      cameraPreset === 'mercury' ||
+      cameraPreset === 'venus' ||
+      cameraPreset === 'mars' ||
+      cameraPreset === 'jupiter' ||
+      cameraPreset === 'saturn' ||
+      cameraPreset === 'uranus' ||
+      cameraPreset === 'neptune'
+    ) {
+      const pNode = planetRenderNodesRef.current.get(cameraPreset);
+      if (pNode) {
+        pNode.group.getWorldPosition(cameraTargetRef.current);
+        const pCamR =
+          scaleMode === 'true'
+            ? Math.max(5, 3.0 * (pNode.config.radius / EARTH.radius) * 3.5)
+            : pNode.config.visualRadius * 2.8;
+        cameraSphericalRef.current.radius = pCamR;
+        targetRadiusRef.current = pCamR;
+      }
     }
   }, [
     appMode,
@@ -1566,6 +1853,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     showEarthUmbraShadow,
     showGeoLeoBelts,
     showLineOfNodes,
+    showPlanetaryOrbits,
+    showPlanetLabels,
     selectedSpaceport,
     rocketTelemetry,
     activeTrajectory,

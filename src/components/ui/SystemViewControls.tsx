@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { ReferenceFrame, ScaleMode, EphemerisState } from '../../types/celestial';
+import type { ReferenceFrame, ScaleMode, EphemerisState, PlanetKey } from '../../types/celestial';
 import { Layers, Globe2, Compass, Sun, ShieldAlert, Disc, Eye, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface SystemViewControlsProps {
@@ -29,6 +29,10 @@ interface SystemViewControlsProps {
   onToggleGeoLeoBelts: () => void;
   showLineOfNodes: boolean;
   onToggleLineOfNodes: () => void;
+  showPlanetaryOrbits?: boolean;
+  onTogglePlanetaryOrbits?: () => void;
+  showPlanetLabels?: boolean;
+  onTogglePlanetLabels?: () => void;
   ephemeris: EphemerisState;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -61,6 +65,10 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   onToggleGeoLeoBelts,
   showLineOfNodes,
   onToggleLineOfNodes,
+  showPlanetaryOrbits = true,
+  onTogglePlanetaryOrbits,
+  showPlanetLabels = true,
+  onTogglePlanetLabels,
   ephemeris,
   isCollapsed,
   onToggleCollapse,
@@ -68,6 +76,10 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
   const toggleCollapse = onToggleCollapse || (() => setInternalCollapsed(!internalCollapsed));
+
+  const [selectedPlanetKey, setSelectedPlanetKey] = useState<PlanetKey>('mars');
+  const selectedPlanet =
+    ephemeris.planets?.find((p) => p.key === selectedPlanetKey) || ephemeris.planets?.[0];
 
   if (collapsed) {
     return (
@@ -268,6 +280,91 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
           </label>
         </div>
       )}
+
+      {/* Solar System Planetary Bodies */}
+      <div className="space-y-2 pt-2 border-t border-gray-800/80 text-xs">
+        <label className="text-[11px] font-mono uppercase text-amber-400 font-bold flex items-center space-x-1.5">
+          <Globe2 className="w-3.5 h-3.5 text-amber-400" />
+          <span>Solar System Planetary Bodies</span>
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
+          <span className="flex items-center space-x-2 text-amber-200">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block shadow-sm shadow-amber-400/50" />
+            <span>Planetary Orbit Paths</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={showPlanetaryOrbits}
+            onChange={onTogglePlanetaryOrbits}
+            className="w-4 h-4 rounded text-amber-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
+          />
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
+          <span className="flex items-center space-x-2 text-cyan-200">
+            <Eye className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Planet 3D Name Badges</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={showPlanetLabels}
+            onChange={onTogglePlanetLabels}
+            className="w-4 h-4 rounded text-cyan-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
+          />
+        </label>
+
+        {/* Planet Telemetry Inspector */}
+        {ephemeris.planets && ephemeris.planets.length > 0 && (
+          <div className="p-2.5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-2 font-mono">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Inspect Planet</span>
+              <select
+                value={selectedPlanetKey}
+                onChange={(e) => setSelectedPlanetKey(e.target.value as PlanetKey)}
+                className="bg-gray-800 text-gray-200 text-xs px-2 py-0.5 rounded border border-gray-700 focus:outline-none cursor-pointer"
+              >
+                {ephemeris.planets.map((p) => (
+                  <option key={p.key} value={p.key} className="bg-gray-900">
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedPlanet && (
+              <div className="space-y-1 text-[10px] text-gray-300">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Semi-Major Axis:</span>
+                  <span className="font-semibold text-amber-300">
+                    {(selectedPlanet.semiMajorAxis / 1.495978707e11).toFixed(3)} AU (
+                    {(selectedPlanet.semiMajorAxis / 1e9).toFixed(1)}M km)
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Orbital Period:</span>
+                  <span className="text-gray-200">
+                    {selectedPlanet.orbitalPeriod > 86400 * 365
+                      ? `${(selectedPlanet.orbitalPeriod / (86400 * 365.25)).toFixed(2)} yrs`
+                      : `${Math.round(selectedPlanet.orbitalPeriod / 86400)} days`}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Distance to Earth:</span>
+                  <span className="text-cyan-300 font-semibold">
+                    {(selectedPlanet.distanceFromEarthMeters / 1e9).toFixed(2)}M km (
+                    {(selectedPlanet.distanceFromEarthMeters / 1.495978707e11).toFixed(3)} AU)
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Ecliptic Inclination:</span>
+                  <span className="text-purple-300">{selectedPlanet.inclinationDeg.toFixed(2)}°</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="space-y-2 pt-2 border-t border-gray-800/80 text-xs">
         <label className="text-[11px] font-mono uppercase text-gray-400">Cislunar Visual Overlays</label>

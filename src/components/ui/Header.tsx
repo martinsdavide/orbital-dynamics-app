@@ -96,13 +96,26 @@ export const Header: React.FC<HeaderProps> = ({
             className="bg-transparent text-gray-200 text-xs focus:outline-none cursor-pointer"
           >
             <option value="free" className="bg-gray-900">Orbit View</option>
-            <option value="earth" className="bg-gray-900">Focus Earth</option>
-            <option value="moon" className="bg-gray-900">Focus Moon</option>
-            <option value="sun" className="bg-gray-900">Focus Sun</option>
-            <option value="spaceport" className="bg-gray-900">Launchpad Cam</option>
-            <option value="rocket" className="bg-gray-900">Chase Rocket</option>
-            <option value="earthrise" className="bg-gray-900">Moon Earthrise</option>
-            <option value="infographic" className="bg-gray-900">Artemis / Infographic View</option>
+            <optgroup label="Inner Solar System" className="bg-gray-900 font-semibold text-gray-400">
+              <option value="sun" className="bg-gray-900 text-gray-200">Focus Sun</option>
+              <option value="mercury" className="bg-gray-900 text-gray-200">Focus Mercury</option>
+              <option value="venus" className="bg-gray-900 text-gray-200">Focus Venus</option>
+              <option value="earth" className="bg-gray-900 text-gray-200">Focus Earth</option>
+              <option value="moon" className="bg-gray-900 text-gray-200">Focus Moon</option>
+              <option value="mars" className="bg-gray-900 text-gray-200">Focus Mars</option>
+            </optgroup>
+            <optgroup label="Outer Giants" className="bg-gray-900 font-semibold text-gray-400">
+              <option value="jupiter" className="bg-gray-900 text-gray-200">Focus Jupiter</option>
+              <option value="saturn" className="bg-gray-900 text-gray-200">Focus Saturn</option>
+              <option value="uranus" className="bg-gray-900 text-gray-200">Focus Uranus</option>
+              <option value="neptune" className="bg-gray-900 text-gray-200">Focus Neptune</option>
+            </optgroup>
+            <optgroup label="Mission Views" className="bg-gray-900 font-semibold text-gray-400">
+              <option value="spaceport" className="bg-gray-900 text-gray-200">Launchpad Cam</option>
+              <option value="rocket" className="bg-gray-900 text-gray-200">Chase Rocket</option>
+              <option value="earthrise" className="bg-gray-900 text-gray-200">Moon Earthrise</option>
+              <option value="infographic" className="bg-gray-900 text-gray-200">Artemis / Infographic View</option>
+            </optgroup>
           </select>
         </div>
 
