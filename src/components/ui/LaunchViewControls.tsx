@@ -13,6 +13,10 @@ interface LaunchViewControlsProps {
   rocketTelemetry: RocketTelemetry;
   onLaunch: () => void;
   onAbort: () => void;
+  isPlaying: boolean;
+  onTogglePlay: () => void;
+  playbackRate: number;
+  onChangePlaybackRate: (rate: number) => void;
   autoGuidance: boolean;
   onToggleAutoGuidance: () => void;
   throttle: number;
@@ -31,6 +35,10 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
   rocketTelemetry,
   onLaunch,
   onAbort,
+  isPlaying,
+  onTogglePlay,
+  playbackRate,
+  onChangePlaybackRate,
   autoGuidance,
   onToggleAutoGuidance,
   throttle,
@@ -194,6 +202,21 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
             className="w-full h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
           />
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 text-xs">
+        <label className="flex items-center gap-2">
+          <span>Playback speed</span>
+          <select value={playbackRate} onChange={(event) => onChangePlaybackRate(Number(event.target.value))} className="rounded bg-gray-800 px-2 py-1">
+            <option value={1}>1×</option>
+            <option value={2}>2×</option>
+          </select>
+        </label>
+        {!isPad && (
+          <button type="button" onClick={onTogglePlay} className="ml-auto rounded bg-gray-800 px-2 py-1 hover:bg-gray-700">
+            {isPlaying ? 'Pause' : 'Resume'}
+          </button>
+        )}
       </div>
 
       <div className="pt-2 border-t border-gray-800/80">

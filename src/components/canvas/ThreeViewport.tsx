@@ -1,5 +1,6 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
+import { LaunchVehicle } from './LaunchVehicle';
 import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey } from '../../types/celestial';
 import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
@@ -122,6 +123,7 @@ export type CameraPreset =
   | 'uranus'
   | 'neptune'
   | 'rocket'
+  | 'rocket_closeup'
   | 'spaceport'
   | 'earthrise'
   | 'infographic';
@@ -178,6 +180,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     showPlanetaryOrbits = true,
     showPlanetLabels = true,
     selectedSpaceport,
+    activeRocket,
     rocketTelemetry,
     activeTrajectory,
     cameraPreset,
@@ -215,7 +218,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const earthTrailPositionsRef = useRef<THREE.Vector3[]>([]);
   const moonTrailPositionsRef = useRef<THREE.Vector3[]>([]);
 
-  const rocketGroupRef = useRef<THREE.Group | null>(null);
+  const launchVehicleRef = useRef<LaunchVehicle | null>(null);
+  const closeupRef = useRef(false);
+  const closeupZoomRef = useRef(1);
+  const launchTimeRef = useRef(0);
   const exhaustParticlesRef = useRef<THREE.Points | null>(null);
   const launchpadMarkerRef = useRef<THREE.Group | null>(null);
   const ascentTrajectoryLineRef = useRef<THREE.Line | null>(null);
@@ -254,19 +260,31 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     ref,
     () => ({
       zoomIn: (factor = 0.7) => {
+        if (closeupRef.current) {
+          closeupZoomRef.current = Math.max(0.75, closeupZoomRef.current * factor);
+          return;
+        }
         targetRadiusRef.current = Math.max(1.5, targetRadiusRef.current * factor);
       },
       zoomOut: (factor = 1.4) => {
+        if (closeupRef.current) {
+          closeupZoomRef.current = Math.min(3, closeupZoomRef.current * factor);
+          return;
+        }
         targetRadiusRef.current = Math.min(35000, targetRadiusRef.current * factor);
       },
       resetZoom: () => {
+        if (closeupRef.current) {
+          closeupZoomRef.current = 1;
+          return;
+        }
         const scales = getScalingConfig(scaleMode);
         let defaultRadius = 140;
         if (cameraPreset === 'earth') defaultRadius = scales.earthCameraRadius;
         else if (cameraPreset === 'moon') defaultRadius = scales.moonCameraRadius;
         else if (cameraPreset === 'sun') defaultRadius = scales.sunCameraRadius;
         else if (cameraPreset === 'spaceport') defaultRadius = scales.earthCameraRadius * 0.55;
-        else if (cameraPreset === 'rocket') defaultRadius = appMode === 'launch' ? 12 : 18;
+        else if (cameraPreset === 'rocket') defaultRadius = appMode === 'launch' ? 1.2 : 18;
         else if (cameraPreset === 'earthrise') defaultRadius = scales.moonCameraRadius * 0.7;
         else if (cameraPreset === 'infographic') defaultRadius = scales.earthMoonDistance * 1.35;
         else if (cameraPreset === 'mercury') defaultRadius = scaleMode === 'true' ? 6 : 15;
@@ -799,45 +817,29 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     scene.add(moonDynamicTrailLine);
     moonDynamicTrailLineRef.current = moonDynamicTrailLine;
 
-    // Rocket 3D Model
-    const rocketGroup = new THREE.Group();
-    scene.add(rocketGroup);
-    rocketGroupRef.current = rocketGroup;
-
-    const rBodyGeo = new THREE.CylinderGeometry(0.4, 0.4, 3.2, 16);
-    const rBodyMat = new THREE.MeshStandardMaterial({
-      color: 0xf3f4f6,
-      roughness: 0.3,
-      metalness: 0.6,
-    });
-    const rBodyMesh = new THREE.Mesh(rBodyGeo, rBodyMat);
-    rBodyMesh.position.y = 1.6;
-    rocketGroup.add(rBodyMesh);
-
-    const rConeGeo = new THREE.ConeGeometry(0.4, 1.0, 16);
-    const rConeMat = new THREE.MeshStandardMaterial({ color: 0x1f2937 });
-    const rConeMesh = new THREE.Mesh(rConeGeo, rConeMat);
-    rConeMesh.position.y = 3.7;
-    rocketGroup.add(rConeMesh);
+    const launchVehicle = new LaunchVehicle();
+    launchVehicle.addTo(scene);
+    launchVehicleRef.current = launchVehicle;
 
     const particleCount = 120;
     const particleGeo = new THREE.BufferGeometry();
     const particlePositions = new Float32Array(particleCount * 3);
-    for (let i = 0; i < particleCount * 3; i++) {
-      particlePositions[i] = 0;
+    for (let i = 1; i < particlePositions.length; i += 3) {
+      particlePositions[i] = -Math.random() * 3;
     }
     particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
 
     const particleTex = createParticleTexture();
     const particleMat = new THREE.PointsMaterial({
-      size: 1.5,
+      size: 0.015,
       map: particleTex,
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
     const exhaustParticles = new THREE.Points(particleGeo, particleMat);
-    rocketGroup.add(exhaustParticles);
+    exhaustParticles.scale.set(0.035, 0.023, 0.035);
+    launchVehicle.exhaustMount.add(exhaustParticles);
     exhaustParticlesRef.current = exhaustParticles;
 
     const ascentGeo = new THREE.BufferGeometry();
@@ -954,6 +956,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     // Controls
     const dom = mountRef.current;
     const onMouseDown = (e: MouseEvent) => {
+      if (closeupRef.current) return;
       isDraggingRef.current = true;
       prevMousePosRef.current = { x: e.clientX, y: e.clientY };
     };
@@ -978,6 +981,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const zoomFactor = Math.exp(e.deltaY * 0.0015);
+      if (closeupRef.current) {
+        closeupZoomRef.current = THREE.MathUtils.clamp(closeupZoomRef.current * zoomFactor, 0.75, 3);
+        return;
+      }
       targetRadiusRef.current = Math.max(
         1.5,
         Math.min(35000, targetRadiusRef.current * zoomFactor)
@@ -1007,10 +1014,21 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     handleResize();
 
     let animId: number;
+    let lastExhaustTime = 0;
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
-      if (cameraRef.current) {
+      if (closeupRef.current) {
+        const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+        const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * camera.aspect);
+        const halfFov = Math.min(verticalHalfFov, horizontalHalfFov);
+        const zoom = THREE.MathUtils.lerp(closeupZoomRef.current, Math.max(1, closeupZoomRef.current), launchVehicle.separationWeight);
+        const distance = Math.max(0.12, launchVehicle.framingRadius / Math.sin(halfFov) * 1.12) * zoom;
+        camera.position.copy(launchVehicle.target).addScaledVector(launchVehicle.cameraDirection, distance);
+        camera.up.copy(launchVehicle.cameraUp);
+        camera.lookAt(launchVehicle.target);
+      } else {
+        camera.up.set(0, 1, 0);
         const diff = targetRadiusRef.current - cameraSphericalRef.current.radius;
         if (Math.abs(diff) > 0.005) {
           cameraSphericalRef.current.radius += diff * 0.15;
@@ -1021,14 +1039,15 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         const { radius, theta, phi } = cameraSphericalRef.current;
         const target = cameraTargetRef.current;
 
-        cameraRef.current.position.x = target.x + radius * Math.sin(phi) * Math.sin(theta);
-        cameraRef.current.position.y = target.y + radius * Math.cos(phi);
-        cameraRef.current.position.z = target.z + radius * Math.sin(phi) * Math.cos(theta);
-        cameraRef.current.lookAt(target);
+        camera.position.x = target.x + radius * Math.sin(phi) * Math.sin(theta);
+        camera.position.y = target.y + radius * Math.cos(phi);
+        camera.position.z = target.z + radius * Math.sin(phi) * Math.cos(theta);
+        camera.lookAt(target);
       }
 
-      if (exhaustParticlesRef.current && exhaustParticlesRef.current.geometry) {
-        const pAttr = exhaustParticlesRef.current.geometry.attributes.position as THREE.BufferAttribute;
+      if (exhaustParticles.visible && launchTimeRef.current !== lastExhaustTime) {
+        lastExhaustTime = launchTimeRef.current;
+        const pAttr = exhaustParticles.geometry.attributes.position as THREE.BufferAttribute;
         const arr = pAttr.array as Float32Array;
         for (let i = 0; i < particleCount; i++) {
           const idx = i * 3;
@@ -1045,9 +1064,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         pAttr.needsUpdate = true;
       }
 
-      if (rendererRef.current && sceneRef.current && cameraRef.current) {
-        rendererRef.current.render(sceneRef.current, cameraRef.current);
-      }
+      renderer.render(scene, camera);
     };
     animate();
 
@@ -1063,6 +1080,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         dom.removeChild(rendererRef.current.domElement);
         rendererRef.current.dispose();
       }
+      launchVehicle.dispose();
+      particleGeo.dispose();
+      particleMat.dispose();
+      particleTex.dispose();
       planetRenderNodesRef.current.forEach((node) => {
         scene.remove(node.group);
         scene.remove(node.orbitLine);
@@ -1501,9 +1522,22 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       });
     }
 
+    const launchVehicle = launchVehicleRef.current;
+    const closeup = appMode === 'launch' && cameraPreset === 'rocket_closeup' && !!launchVehicle;
+    if (closeup && (!closeupRef.current || rocketTelemetry.phase === 'pad' && launchTimeRef.current > 0)) {
+      closeupZoomRef.current = 1;
+    }
+    closeupRef.current = closeup;
+    const camera = cameraRef.current;
+    if (camera && camera.near !== (closeup ? 0.003 : 0.1)) {
+      camera.near = closeup ? 0.003 : 0.1;
+      camera.updateProjectionMatrix();
+    }
+    launchVehicle?.setVisible(appMode === 'launch');
+    if (launchpadMarkerRef.current) launchpadMarkerRef.current.visible = !closeup;
+
     if (appMode === 'launch') {
-      if (rocketGroupRef.current && launchpadMarkerRef.current) {
-        rocketGroupRef.current.visible = true;
+      if (launchVehicle && launchpadMarkerRef.current) {
 
         // Obtain exact world position of the launchpad on Earth's surface
         const padWorldPos = new THREE.Vector3();
@@ -1526,26 +1560,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           eastTangent.set(1, 0, 0);
         }
 
-        const altScale = (rocketTelemetry.altitude / 300000) * 12;
-        const downrangeScale = (rocketTelemetry.downrangeDistance / 800000) * 16;
-
-        const currentRocketPos = new THREE.Vector3()
-          .copy(padWorldPos)
-          .addScaledVector(upNormal, altScale + 0.2)
-          .addScaledVector(eastTangent, downrangeScale);
-
-        rocketGroupRef.current.position.copy(currentRocketPos);
-
-        // Attitude orientation
-        const pitchRad = (rocketTelemetry.pitchAngle * Math.PI) / 180;
-        const flightDir = new THREE.Vector3()
-          .addScaledVector(upNormal, Math.sin(pitchRad))
-          .addScaledVector(eastTangent, Math.cos(pitchRad))
-          .normalize();
-
-        const lookTarget = new THREE.Vector3().copy(currentRocketPos).add(flightDir);
-        rocketGroupRef.current.lookAt(lookTarget);
-        rocketGroupRef.current.rotateX(Math.PI / 2);
+        launchVehicle.update(activeRocket, rocketTelemetry, padWorldPos, upNormal, eastTangent);
+        const currentRocketPos = launchVehicle.group.position;
+        launchTimeRef.current = rocketTelemetry.time;
 
         if (rocketTelemetry.phase !== 'pad') {
           ascentPositionsRef.current.push(currentRocketPos.clone());
@@ -1555,7 +1572,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           if (ascentTrajectoryLineRef.current) {
             ascentTrajectoryLineRef.current.geometry.dispose();
             ascentTrajectoryLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(ascentPositionsRef.current);
-            ascentTrajectoryLineRef.current.visible = true;
+            ascentTrajectoryLineRef.current.visible = !closeup;
           }
         } else {
           ascentPositionsRef.current = [];
@@ -1576,9 +1593,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         transferTrajectoryLineRef.current.visible = false;
       }
     } else if (appMode === 'transfer' && activeTrajectory) {
-      if (rocketGroupRef.current) {
-        rocketGroupRef.current.visible = false;
-      }
       if (ascentTrajectoryLineRef.current) {
         ascentTrajectoryLineRef.current.visible = false;
       }
@@ -1770,7 +1784,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         milestoneBadgesGroupRef.current.visible = true;
       }
     } else {
-      if (rocketGroupRef.current) rocketGroupRef.current.visible = false;
       if (ascentTrajectoryLineRef.current) ascentTrajectoryLineRef.current.visible = false;
       if (transferTrajectoryLineRef.current) transferTrajectoryLineRef.current.visible = false;
       if (milestoneBadgesGroupRef.current) milestoneBadgesGroupRef.current.visible = false;
@@ -1794,10 +1807,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       cameraSphericalRef.current.radius = scales.earthCameraRadius * 0.55;
       targetRadiusRef.current = scales.earthCameraRadius * 0.55;
     } else if (cameraPreset === 'rocket') {
-      if (appMode === 'launch' && rocketGroupRef.current) {
-        cameraTargetRef.current.copy(rocketGroupRef.current.position);
-        cameraSphericalRef.current.radius = 12;
-        targetRadiusRef.current = 12;
+      if (appMode === 'launch' && launchVehicle) {
+        cameraTargetRef.current.copy(launchVehicle.target);
+        cameraSphericalRef.current.radius = 1.2;
+        targetRadiusRef.current = 1.2;
       } else if (appMode === 'transfer' && spacecraftMarkerRef.current) {
         cameraTargetRef.current.copy(spacecraftMarkerRef.current.position);
         cameraSphericalRef.current.radius = 18;
@@ -1856,6 +1869,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     showPlanetaryOrbits,
     showPlanetLabels,
     selectedSpaceport,
+    activeRocket,
     rocketTelemetry,
     activeTrajectory,
     cameraPreset,
@@ -1866,7 +1880,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     <div
       ref={mountRef}
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-      className="cursor-grab active:cursor-grabbing select-none overflow-hidden"
+      className={`select-none overflow-hidden ${cameraPreset === 'rocket_closeup' ? '' : 'cursor-grab active:cursor-grabbing'}`}
     />
   );
 });

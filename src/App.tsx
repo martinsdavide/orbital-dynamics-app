@@ -47,6 +47,8 @@ export function App() {
   const [simTimeSeconds, setSimTimeSeconds] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
   const [timeWarp, setTimeWarp] = useState<number>(100);
+  const [launchRate, setLaunchRate] = useState(2);
+  const [isLaunchPlaying, setIsLaunchPlaying] = useState(true);
 
   const [referenceFrame, setReferenceFrame] = useState<ReferenceFrame>('heliocentric');
   const [scaleMode, setScaleMode] = useState<ScaleMode>('visual');
@@ -142,22 +144,22 @@ export function App() {
             return next > 1.0 ? 0 : next;
           });
         }
+      }
 
-        if (appMode === 'launch' && rocketTelemetry.phase !== 'pad') {
-          const launchDt = realDt * Math.min(5, Math.max(1, timeWarp === 1 ? 1 : 2));
-          setRocketTelemetry((prev) =>
-            simulateRocketAscentStep({
-              timeSeconds: prev.time,
-              dt: launchDt,
-              rocket: activeRocket,
-              spaceport: selectedSpaceport,
-              telemetry: prev,
-              userThrottle,
-              autoGuidance,
-              manualPitchOverride: manualPitch,
-            })
-          );
-        }
+      if (appMode === 'launch' && isLaunchPlaying && rocketTelemetry.phase !== 'pad') {
+        const launchDt = realDt * launchRate;
+        setRocketTelemetry((prev) =>
+          simulateRocketAscentStep({
+            timeSeconds: prev.time,
+            dt: launchDt,
+            rocket: activeRocket,
+            spaceport: selectedSpaceport,
+            telemetry: prev,
+            userThrottle,
+            autoGuidance,
+            manualPitchOverride: manualPitch,
+          })
+        );
       }
 
       animFrame = requestAnimationFrame(loop);
@@ -165,7 +167,7 @@ export function App() {
 
     animFrame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrame);
-  }, [isPlaying, timeWarp, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, rocketTelemetry.phase]);
+  }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, rocketTelemetry.phase]);
 
   const handleSelectMode = (mode: ActiveAppMode) => {
     setAppMode(mode);
@@ -174,7 +176,7 @@ export function App() {
     } else if (mode === 'launch') {
       setReferenceFrame('geocentric');
       setScaleMode('true');
-      setCameraPreset('spaceport');
+      setCameraPreset('rocket_closeup');
     } else if (mode === 'transfer') {
       setReferenceFrame('geocentric');
       setScaleMode('true');
@@ -185,11 +187,19 @@ export function App() {
 
   const handleLaunch = () => {
     setRocketTelemetry((prev) => ({
-      ...prev,
+      ...simulateRocketAscentStep({
+        timeSeconds: 0,
+        dt: 0,
+        rocket: activeRocket,
+        spaceport: selectedSpaceport,
+        telemetry: { ...prev, phase: 'pad', isOrbitAchieved: false },
+        userThrottle,
+        autoGuidance,
+      }),
       phase: 'boost_stage1',
       statusMessage: 'Ignition! Liftoff of ' + activeRocket.name + ' from ' + selectedSpaceport.name,
     }));
-    setCameraPreset('rocket');
+    setIsLaunchPlaying(true);
   };
 
   const handleAbort = () => {
@@ -226,7 +236,7 @@ export function App() {
       statusMessage: 'Launchpad reset. Ready for ignition.',
       phase: 'pad',
     });
-    setCameraPreset('spaceport');
+    if (appMode === 'launch') setCameraPreset('rocket_closeup');
   };
 
   const handleResetSimulation = () => {
@@ -323,6 +333,10 @@ export function App() {
           rocketTelemetry={rocketTelemetry}
           onLaunch={handleLaunch}
           onAbort={handleAbort}
+          isPlaying={isLaunchPlaying}
+          onTogglePlay={() => setIsLaunchPlaying(!isLaunchPlaying)}
+          playbackRate={launchRate}
+          onChangePlaybackRate={setLaunchRate}
           autoGuidance={autoGuidance}
           onToggleAutoGuidance={() => setAutoGuidance(!autoGuidance)}
           throttle={userThrottle}
