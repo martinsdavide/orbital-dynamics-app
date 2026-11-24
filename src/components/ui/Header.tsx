@@ -1,3 +1,4 @@
+import { PLANETARY_MOONS } from '../../physics/planetaryMoons.ts';
 import React from 'react';
 import { Orbit, Rocket, Compass, Eye, EyeOff, Info, BarChart3, RotateCcw } from 'lucide-react';
 import type { ActiveAppMode, CameraPreset } from '../canvas/ThreeViewport';
@@ -111,6 +112,13 @@ export const Header: React.FC<HeaderProps> = ({
               <option value="uranus" className="bg-gray-900 text-gray-200">Focus Uranus</option>
               <option value="neptune" className="bg-gray-900 text-gray-200">Focus Neptune</option>
             </optgroup>
+            {appMode === 'system' && (
+              <optgroup label="Planetary Moons" className="bg-gray-900 font-semibold text-gray-400">
+                {PLANETARY_MOONS.map(({ key, name }) => (
+                  <option key={key} value={key} className="bg-gray-900 text-gray-200">Focus {name}</option>
+                ))}
+              </optgroup>
+            )}
             <optgroup label="Mission Views" className="bg-gray-900 font-semibold text-gray-400">
               <option value="spaceport" className="bg-gray-900 text-gray-200">Launchpad Cam</option>
               {appMode === 'launch' && <option value="rocket_closeup" className="bg-gray-900">Rocket Close-up</option>}

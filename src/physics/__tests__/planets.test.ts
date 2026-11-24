@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { getEphemerisState, magnitude } from '../orbitalMechanics.ts';
 import { EARTH, MOON, PLANET_CONFIGS, SUN } from '../constants.ts';
 import { Vector3 } from 'three';
-import { getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from '../../components/canvas/PlanetaryScene.ts';
+import { getMoonOrbitScale, getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from '../../components/canvas/PlanetaryScene.ts';
+import { calculatePlanetaryMoonPosition, PLANETARY_MOONS } from '../planetaryMoons.ts';
 
 test('Planetary Ephemeris - All 8 Major Planets Populated in EphemerisState', () => {
   assert.equal(PLANET_CONFIGS.length, 8, 'Should have 8 planet configurations');
@@ -124,4 +125,35 @@ test('Planetary scene uses the selected origin while preserving relative distanc
   const centerOfMass = earthInFrame.clone().addScaledVector(moonInFrame, MOON.mass / EARTH.mass);
   assert.ok(centerOfMass.length() < 1e-10);
   assert.ok(planet.clone().add(barycentric).sub(earthInFrame).distanceTo(planet.clone().sub(earth)) < 1e-10);
+});
+
+test('Planetary moons revolve around their hosts in tilted prograde orbits', () => {
+  for (const moon of PLANETARY_MOONS) {
+    const host = PLANET_CONFIGS.find(planet => planet.key === moon.host)!;
+    const positionAt = (time: number) => new Vector3().copy(calculatePlanetaryMoonPosition(moon, host, time));
+    const start = positionAt(0);
+    const next = positionAt(moon.orbitalPeriod / 256);
+    const fullOrbit = positionAt(moon.orbitalPeriod);
+    assert.ok(start.distanceTo(fullOrbit) < moon.semiMajorAxis * 1e-12, moon.name);
+
+    const normal = start.clone().cross(next).normalize();
+    const hostPole = new Vector3(-Math.sin(host.axialTiltRad), Math.cos(host.axialTiltRad), 0);
+    assert.ok(Math.abs(normal.angleTo(hostPole) - moon.inclinationDeg * Math.PI / 180) < 1e-10, moon.name);
+
+    const periapsis = moon.semiMajorAxis * (1 - moon.eccentricity);
+    const apoapsis = moon.semiMajorAxis * (1 + moon.eccentricity);
+    for (let i = 0; i < 32; i++) {
+      const distance = positionAt(i / 32 * moon.orbitalPeriod).length();
+      assert.ok(distance >= periapsis - 1e-5 && distance <= apoapsis + 1e-5, moon.name);
+    }
+  }
+});
+
+test('Jupiter moon orbits retain their relative spacing in visual scale', () => {
+  const jupiter = PLANET_CONFIGS.find(planet => planet.key === 'jupiter')!;
+  const [ganymede, callisto] = PLANETARY_MOONS.filter(moon => moon.host === 'jupiter');
+  const scale = getMoonOrbitScale(jupiter, 'visual');
+  assert.ok(ganymede.semiMajorAxis * scale > jupiter.visualRadius);
+  assert.ok(ganymede.semiMajorAxis * scale < callisto.semiMajorAxis * scale);
+  assert.ok(callisto.semiMajorAxis * scale <= 100 + 1e-10);
 });

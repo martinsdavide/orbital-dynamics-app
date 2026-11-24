@@ -2,13 +2,14 @@ import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import { LaunchVehicle } from './LaunchVehicle';
 import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey } from '../../types/celestial';
+import { calculatePlanetaryMoonPosition, PLANETARY_MOONS, type PlanetaryMoonKey } from '../../physics/planetaryMoons.ts';
 import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 import type { EarthMoonTrajectory } from '../../types/trajectory';
 import { SCALING, EARTH, MOON, SUN, PLANET_CONFIGS, type PlanetConfig } from '../../physics/constants.ts';
 import { calculateLunarOrbitPoint } from '../../physics/nBodyIntegrator.ts';
 import { calculatePlanetOrbit, EARTH_ORBIT } from '../../physics/orbitalMechanics.ts';
-import { getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from './PlanetaryScene';
+import { getMoonOrbitScale, getPlanetDisplayRadius, getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from './PlanetaryScene';
 import {
   createEarthTexture,
   createMoonTexture,
@@ -116,6 +117,7 @@ const PLANET_BADGE_OFFSET = PLANET_BADGE_HEIGHT / 2 + 4;
 const MAX_TRAIL_POINTS = 4000;
 
 export type CameraPreset =
+  | PlanetaryMoonKey
   | 'free'
   | 'earth'
   | 'moon'
@@ -251,6 +253,15 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       }
     >
   >(new Map());
+  const moonRenderNodesRef = useRef(new Map<CameraPreset, {
+    config: (typeof PLANETARY_MOONS)[number];
+    host: PlanetConfig;
+    mesh: THREE.Mesh;
+    label: THREE.Sprite;
+    orbit: THREE.Line;
+    distanceScale: number;
+    radius: number;
+  }>());
   const earthLabelSpriteRef = useRef<THREE.Sprite | null>(null);
 
   const isDraggingRef = useRef(false);
@@ -284,6 +295,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           return;
         }
         const scales = getScalingConfig(scaleMode);
+        const moon = moonRenderNodesRef.current.get(cameraPreset);
         let defaultRadius = 140;
         if (cameraPreset === 'earth') defaultRadius = scales.earthCameraRadius;
         else if (cameraPreset === 'moon') defaultRadius = scales.moonCameraRadius;
@@ -299,6 +311,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         else if (cameraPreset === 'saturn') defaultRadius = scaleMode === 'true' ? 75 : 50;
         else if (cameraPreset === 'uranus') defaultRadius = scaleMode === 'true' ? 35 : 32;
         else if (cameraPreset === 'neptune') defaultRadius = scaleMode === 'true' ? 35 : 30;
+        else if (moon) defaultRadius = Math.max(2, moon.radius * 5);
         else if (scaleMode === 'true') defaultRadius = scales.earthMoonDistance * 0.75;
 
         targetRadiusRef.current = defaultRadius;
@@ -639,6 +652,35 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         orbitLine,
       });
     });
+
+    const moonNodes = moonRenderNodesRef.current;
+    for (const config of PLANETARY_MOONS) {
+      const host = planetRenderNodesRef.current.get(config.host)!;
+      const irregular = config.host === 'mars';
+      const geometry = irregular ? new THREE.IcosahedronGeometry(1, 2) : new THREE.SphereGeometry(1, 24, 16);
+      const map = config.key === 'titan' ? undefined : createMoonTexture();
+      const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+        color: config.color,
+        map,
+        roughness: map ? 0.95 : 0.8,
+        emissive: config.color,
+        emissiveIntensity: 0.12,
+      }));
+      mesh.name = `moon_${config.key}`;
+      const label = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: createPlanetLabelTexture(config.name, config.color),
+        transparent: true,
+        depthTest: false,
+      }));
+      const orbit = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({
+        color: config.color,
+        transparent: true,
+        opacity: 0.55,
+      }));
+      orbit.name = `moon_orbit_${config.key}`;
+      host.group.add(mesh, label, orbit);
+      moonNodes.set(config.key, { config, host: host.config, mesh, label, orbit, distanceScale: 1, radius: 1 });
+    }
 
     // 1. Earth Orbit Line (Heliocentric)
     const earthOrbitGeo = new THREE.BufferGeometry();
@@ -1050,6 +1092,17 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       particleGeo.dispose();
       particleMat.dispose();
       particleTex.dispose();
+      for (const { mesh, label, orbit } of moonNodes.values()) {
+        mesh.geometry.dispose();
+        const material = mesh.material as THREE.MeshStandardMaterial;
+        material.map?.dispose();
+        material.dispose();
+        label.material.map?.dispose();
+        label.material.dispose();
+        orbit.geometry.dispose();
+        (orbit.material as THREE.Material).dispose();
+      }
+      moonNodes.clear();
       planetRenderNodesRef.current.forEach((node) => {
         scene.remove(node.group);
         scene.remove(node.orbitLine);
@@ -1095,11 +1148,28 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     }
 
     planetRenderNodesRef.current.forEach(({ config, mesh, orbitLine, labelSprite }) => {
-      const radius = scaleMode === 'true' ? 3 * config.radius / EARTH.radius : config.visualRadius;
+      const radius = getPlanetDisplayRadius(config, scaleMode);
       mesh.scale.setScalar(radius / config.visualRadius);
       labelSprite.position.y = radius + PLANET_BADGE_OFFSET;
       orbitLine.geometry.setFromPoints(samplePlanetOrbit(config, scaleMode, sunEarthDistance)).computeBoundingSphere();
     });
+
+    for (const node of moonRenderNodesRef.current.values()) {
+      const { config, host, mesh, orbit } = node;
+      const hostScale = getPlanetDisplayRadius(host, scaleMode) / host.radius;
+      node.distanceScale = getMoonOrbitScale(host, scaleMode);
+      node.radius = Math.max(config.radius * hostScale, scaleMode === 'true' ? 0.13 : 0.34);
+      mesh.scale.setScalar(node.radius);
+      if (config.host === 'mars') {
+        mesh.scale.y *= 0.68;
+        mesh.scale.z *= 0.83;
+      }
+      const samples = Array.from({ length: 129 }, (_, index) => {
+        const pos = calculatePlanetaryMoonPosition(config, host, index / 128 * config.orbitalPeriod);
+        return new THREE.Vector3(pos.x, pos.y, pos.z).multiplyScalar(node.distanceScale);
+      });
+      orbit.geometry.setFromPoints(samples).computeBoundingSphere();
+    }
   }, [scaleMode]);
 
   useEffect(() => {
@@ -1328,6 +1398,19 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         node.group.visible = appMode === 'system';
         node.labelSprite.visible = showPlanetLabels && appMode === 'system';
       });
+    }
+
+    for (const { config, host, mesh, label, orbit, distanceScale, radius } of moonRenderNodesRef.current.values()) {
+      const pos = calculatePlanetaryMoonPosition(config, host, ephemeris.timeSeconds);
+      mesh.position.set(pos.x, pos.y, pos.z).multiplyScalar(distanceScale);
+      mesh.rotation.y = Math.atan2(pos.x, pos.z);
+      const focused = cameraPreset === config.key;
+      const labelHeight = focused ? Math.max(0.34, radius * 0.7) : 2.4;
+      label.scale.set(4 * labelHeight, labelHeight, 1);
+      label.position.copy(mesh.position);
+      label.position.y += radius + labelHeight * 0.65;
+      label.visible = showPlanetLabels;
+      orbit.visible = showPlanetaryOrbits;
     }
 
     if (lagrangeGroupRef.current) {
@@ -1615,6 +1698,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       if (spacecraftMarkerRef.current) spacecraftMarkerRef.current.visible = false;
     }
 
+    const focusedMoon = moonRenderNodesRef.current.get(cameraPreset);
     if (cameraPreset === 'free') {
       cameraTargetRef.current.set(0, 0, 0);
     } else if (cameraPreset === 'earth') {
@@ -1657,6 +1741,11 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       targetRadiusRef.current = scales.earthMoonDistance * 1.35;
       cameraSphericalRef.current.phi = 0.25; // Top-down inclined perspective
       cameraSphericalRef.current.theta = Math.PI / 2;
+    } else if (focusedMoon) {
+      focusedMoon.mesh.getWorldPosition(cameraTargetRef.current);
+      const radius = Math.max(2, focusedMoon.radius * 5);
+      cameraSphericalRef.current.radius = radius;
+      targetRadiusRef.current = radius;
     } else if (
       cameraPreset === 'mercury' ||
       cameraPreset === 'venus' ||
