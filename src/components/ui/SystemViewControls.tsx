@@ -143,6 +143,16 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
           >
             Geocentric
           </button>
+          <button
+            onClick={() => onChangeFrame('barycentric')}
+            className={`col-span-2 py-1.5 rounded-lg text-center font-medium transition-all ${
+              referenceFrame === 'barycentric'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            Earth–Moon Barycentric
+          </button>
         </div>
       </div>
 

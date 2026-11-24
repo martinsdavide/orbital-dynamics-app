@@ -1,0 +1,28 @@
+import { Vector3 } from 'three';
+import { EARTH, MOON, type PlanetConfig } from '../../physics/constants.ts';
+import { calculatePlanetOrbit } from '../../physics/orbitalMechanics.ts';
+import type { ReferenceFrame, ScaleMode, Vector3D } from '../../types/celestial.ts';
+
+export function projectPlanet(position: Vector3D, planet: PlanetConfig, scaleMode: ScaleMode, sunEarthDistance: number): Vector3 {
+  const scale = scaleMode === 'true'
+    ? sunEarthDistance / EARTH.semiMajorAxis
+    : planet.visualDistance / planet.semiMajorAxis;
+  return new Vector3(position.x, position.y, position.z).multiplyScalar(scale);
+}
+
+export function samplePlanetOrbit(planet: PlanetConfig, scaleMode: ScaleMode, sunEarthDistance: number): Vector3[] {
+  const segments = 256;
+  return Array.from({ length: segments + 1 }, (_, index) => {
+    const time = index / segments * planet.orbitalPeriod;
+    return projectPlanet(calculatePlanetOrbit(planet, time).position, planet, scaleMode, sunEarthDistance);
+  });
+}
+
+export function getSolarSystemOffset(frame: ReferenceFrame, earth: Vector3, moonRelativeToEarth: Vector3): Vector3 {
+  if (frame === 'heliocentric') return new Vector3();
+  const offset = earth.clone().negate();
+  if (frame === 'barycentric') {
+    offset.addScaledVector(moonRelativeToEarth, -MOON.mass / (EARTH.mass + MOON.mass));
+  }
+  return offset;
+}

@@ -13,7 +13,7 @@
 - **Multiple Coordinate Reference Frames**:
   - **Heliocentric**: Sun-centered solar system orbit overview.
   - **Geocentric**: Earth-centered cislunar dynamics view.
-  - **Barycentric**: Earth-Moon barycenter rotating synodic frame.
+  - **Barycentric**: Earth–Moon center of mass with axes aligned to the ecliptic.
 - **Astrodynamics Visual Overlays**:
   - **Earth-Moon Lagrange Equilibrium Points ($L_1, L_2, L_3, L_4, L_5$)** with stability indicators and cislunar gateway markers.
   - Keplerian orbit trail ribbons, Moon's Laplace Sphere of Influence (SOI $\approx 66,100\text{ km}$), atmospheric Rayleigh glow, day/night terminator lines, and solar/lunar eclipse alignments.

@@ -7,7 +7,8 @@ import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 import type { EarthMoonTrajectory } from '../../types/trajectory';
 import { SCALING, EARTH, MOON, SUN, PLANET_CONFIGS, type PlanetConfig } from '../../physics/constants.ts';
 import { calculateLunarOrbitPoint } from '../../physics/nBodyIntegrator.ts';
-import { normalize, magnitude } from '../../physics/orbitalMechanics.ts';
+import { calculatePlanetOrbit, EARTH_ORBIT } from '../../physics/orbitalMechanics.ts';
+import { getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from './PlanetaryScene';
 import {
   createEarthTexture,
   createMoonTexture,
@@ -612,20 +613,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       labelSprite.scale.set(16, 4, 1);
       planetGroup.add(labelSprite);
 
-      // Heliocentric Orbit Path Line
-      const orbitPts: THREE.Vector3[] = [];
-      const segments = 256;
-      for (let s = 0; s <= segments; s++) {
-        const theta = (s / segments) * Math.PI * 2;
-        orbitPts.push(
-          new THREE.Vector3(
-            Math.cos(theta) * cfg.visualDistance,
-            0,
-            Math.sin(theta) * cfg.visualDistance
-          )
-        );
-      }
-      const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPts);
+      const orbitGeo = new THREE.BufferGeometry();
       const orbitMat = new THREE.LineBasicMaterial({
         color: cfg.color,
         transparent: true,
@@ -647,18 +635,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     });
 
     // 1. Earth Orbit Line (Heliocentric)
-    const earthOrbitPts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 256; i++) {
-      const theta = (i / 256) * Math.PI * 2;
-      earthOrbitPts.push(
-        new THREE.Vector3(
-          Math.cos(theta) * SCALING.visual.sunEarthDistance,
-          0,
-          Math.sin(theta) * SCALING.visual.sunEarthDistance
-        )
-      );
-    }
-    const earthOrbitGeo = new THREE.BufferGeometry().setFromPoints(earthOrbitPts);
+    const earthOrbitGeo = new THREE.BufferGeometry();
     const earthOrbitMat = new THREE.LineBasicMaterial({
       color: 0x06b6d4, // Bright Cyan
       transparent: true,
@@ -669,29 +646,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     scene.add(earthOrbitLine);
     earthOrbitLineRef.current = earthOrbitLine;
 
-    // 2. Composed Lunar Orbit around the Sun (13.37-Wave Physically-Convex Epicycloid)
-    // In real astrodynamics, v_Earth (30 km/s) >> v_Moon (1 km/s), so the Moon's path around the Sun
-    // is everywhere strictly convex towards the Sun with 13 smooth sinusoidal ripples and NO retrogrades or cusps.
-    const composedMoonPts: THREE.Vector3[] = [];
-    const totalYearSteps = 1200;
-    const moonToEarthRatio = EARTH.orbitalPeriod / MOON.orbitalPeriod; // ~13.368 lunar cycles/year
-    const rSE = SCALING.visual.sunEarthDistance;
-    // Visually scaled wave amplitude (kept within convex limit to avoid mathematical cusps)
-    const waveAmplitude = 12.5;
-
-    for (let i = 0; i <= totalYearSteps; i++) {
-      const thetaE = (i / totalYearSteps) * Math.PI * 2;
-      const thetaM = thetaE * moonToEarthRatio;
-
-      // Heliocentric radial distance with smooth 13-wave lunar undulation
-      const rCur = rSE + waveAmplitude * Math.cos(thetaM);
-      const earthX = Math.cos(thetaE) * rCur;
-      const earthZ = Math.sin(thetaE) * rCur;
-      const moonRelY = Math.sin(thetaM) * 3.2;
-
-      composedMoonPts.push(new THREE.Vector3(earthX, moonRelY, earthZ));
-    }
-    const composedMoonGeo = new THREE.BufferGeometry().setFromPoints(composedMoonPts);
+    // Moon path around the Sun
+    const composedMoonGeo = new THREE.BufferGeometry();
     const composedMoonMat = new THREE.LineBasicMaterial({
       vertexColors: true,
       transparent: true,
@@ -1117,6 +1073,24 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   }, [selectedSpaceport]);
 
   useEffect(() => {
+    const { sunEarthDistance } = getScalingConfig(scaleMode);
+    const earthOrbit = samplePlanetOrbit(EARTH_ORBIT, scaleMode, sunEarthDistance);
+    if (earthOrbitLineRef.current) {
+      earthOrbitLineRef.current.geometry.setFromPoints(earthOrbit).computeBoundingSphere();
+    }
+    if (geocentricSolarOrbitLineRef.current) {
+      const sunOrbit = earthOrbit.map(point => point.clone().negate());
+      geocentricSolarOrbitLineRef.current.geometry.setFromPoints(sunOrbit).computeBoundingSphere();
+    }
+
+    planetRenderNodesRef.current.forEach(({ config, mesh, orbitLine }) => {
+      const trueRadius = 3 * config.radius / EARTH.radius;
+      mesh.scale.setScalar(scaleMode === 'true' ? trueRadius / config.visualRadius : 1);
+      orbitLine.geometry.setFromPoints(samplePlanetOrbit(config, scaleMode, sunEarthDistance)).computeBoundingSphere();
+    });
+  }, [scaleMode]);
+
+  useEffect(() => {
     if (!sceneRef.current) return;
 
     const scales = getScalingConfig(scaleMode);
@@ -1153,97 +1127,36 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       moonOrbitLineRef.current.scale.setScalar(1);
     }
 
-    // Rebuild Earth Heliocentric Orbit Line around Sun
-    if (earthOrbitLineRef.current) {
-      const earthOrbitPts: THREE.Vector3[] = [];
-      for (let i = 0; i <= 256; i++) {
-        const theta = (i / 256) * Math.PI * 2;
-        earthOrbitPts.push(new THREE.Vector3(Math.cos(theta) * sunDist, 0, Math.sin(theta) * sunDist));
-      }
-      earthOrbitLineRef.current.geometry.setFromPoints(earthOrbitPts);
-      earthOrbitLineRef.current.scale.setScalar(1);
-    }
-
-    // Rebuild or scale planetary orbit lines and meshes
-    planetRenderNodesRef.current.forEach((node) => {
-      const cfg = node.config;
-      let orbitR = cfg.visualDistance;
-      if (scaleMode === 'true') {
-        orbitR = (cfg.semiMajorAxis / EARTH.semiMajorAxis) * scales.sunEarthDistance;
-        const trueR = 3.0 * (cfg.radius / EARTH.radius);
-        node.mesh.scale.setScalar(trueR / cfg.visualRadius);
-      } else {
-        node.mesh.scale.setScalar(1.0);
-      }
-
-      const pts: THREE.Vector3[] = [];
-      const segs = 256;
-      for (let s = 0; s <= segs; s++) {
-        const theta = (s / segs) * Math.PI * 2;
-        pts.push(new THREE.Vector3(Math.cos(theta) * orbitR, 0, Math.sin(theta) * orbitR));
-      }
-      node.orbitLine.geometry.setFromPoints(pts);
-    });
-
     // Dynamic Rolling 1-Year Lunar Epicycloid Orbit Trail
     // Trails exactly up to 1 Earth orbital revolution (365.25 days).
     // As soon as 1 revolution completes, older trail points gradually fade and dissolve,
     // seamlessly replaced by the new forming orbital cycle.
-    if (composedMoonSunLineRef.current) {
+    if (composedMoonSunLineRef.current && appMode === 'system' && referenceFrame === 'heliocentric' && showComposedMoonSunOrbit) {
       const composedMoonPts: THREE.Vector3[] = [];
       const colorArr: number[] = [];
       const totalSteps = 1200;
 
       const curTime = ephemeris.timeSeconds;
-      const T_year = EARTH.orbitalPeriod;
-      // Active visible trail window: up to 1 full Earth year
-      const trailSpan = Math.min(curTime, T_year);
-      const startTime = Math.max(0, curTime - trailSpan);
+      const trailSpan = Math.min(curTime, EARTH.orbitalPeriod);
+      const isPreview = trailSpan < 60;
+      const startTime = isPreview ? 0 : curTime - trailSpan;
+      const duration = isPreview ? EARTH.orbitalPeriod : trailSpan;
 
-      // If at t=0, create an initial preview ring
-      if (trailSpan < 60) {
-        for (let i = 0; i <= totalSteps; i++) {
-          const u = i / totalSteps;
-          const tSample = u * T_year;
-          const thetaE = (tSample / EARTH.orbitalPeriod) * (2 * Math.PI);
-          const thetaM = (tSample / MOON.orbitalPeriod) * (2 * Math.PI);
+      for (let i = 0; i <= totalSteps; i++) {
+        const u = i / totalSteps;
+        const tSample = startTime + u * duration;
+        const earth = projectPlanet(calculatePlanetOrbit(EARTH_ORBIT, tSample).position, EARTH_ORBIT, scaleMode, sunDist);
+        const relMoon = calculateLunarOrbitPoint(tSample / MOON.orbitalPeriod * 2 * Math.PI, emDistScale);
+        composedMoonPts.push(earth.add(new THREE.Vector3(relMoon.x, relMoon.y, relMoon.z)));
 
-          const earthX = Math.cos(thetaE) * sunDist;
-          const earthZ = Math.sin(thetaE) * sunDist;
-          const relMoon = calculateLunarOrbitPoint(thetaM, emDistScale);
-
-          composedMoonPts.push(new THREE.Vector3(earthX + relMoon.x, relMoon.y, earthZ + relMoon.z));
-          colorArr.push(0.95 * 0.4, 0.2 * 0.4, 0.6 * 0.4);
-        }
-      } else {
-        for (let i = 0; i <= totalSteps; i++) {
-          const u = i / totalSteps; // 0 = oldest (1 year ago), 1 = current time (Moon position)
-          const tSample = startTime + u * trailSpan;
-
-          const thetaE = (tSample / EARTH.orbitalPeriod) * (2 * Math.PI);
-          const thetaM = (tSample / MOON.orbitalPeriod) * (2 * Math.PI);
-
-          const earthX = Math.cos(thetaE) * sunDist;
-          const earthZ = Math.sin(thetaE) * sunDist;
-
-          const relMoon = calculateLunarOrbitPoint(thetaM, emDistScale);
-
-          composedMoonPts.push(new THREE.Vector3(earthX + relMoon.x, relMoon.y, earthZ + relMoon.z));
-
-          // Exponential fade towards the tail: older than 1 revolution completely dissolves
-          const intensity = 0.04 + 0.96 * Math.pow(u, 1.6);
-          // Color gradient: deep violet at the tail -> brilliant electric rose at the Moon
-          colorArr.push(
-            0.96 * intensity,
-            (0.12 + 0.15 * u) * intensity,
-            (0.55 + 0.45 * u) * intensity
-          );
-        }
+        const intensity = isPreview ? 0.4 : 0.04 + 0.96 * Math.pow(u, 1.6);
+        colorArr.push(0.96 * intensity, (0.12 + 0.15 * u) * intensity, (0.55 + 0.45 * u) * intensity);
       }
 
       const geo = composedMoonSunLineRef.current.geometry;
       geo.setFromPoints(composedMoonPts);
       geo.setAttribute('color', new THREE.Float32BufferAttribute(colorArr, 3));
+      geo.computeBoundingSphere();
       composedMoonSunLineRef.current.scale.setScalar(1);
     }
     // In Lunar Mission mode, synchronize celestial bodies directly with the spacecraft timeline
@@ -1253,17 +1166,28 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     const moonAngle = (activeMissionTime / MOON.orbitalPeriod) * (2 * Math.PI);
     const moonPos = calculateLunarOrbitPoint(moonAngle, emDistScale);
-    const moonX = moonPos.x;
-    const moonY = moonPos.y;
-    const moonZ = moonPos.z;
+    const moonRelativeToEarth = new THREE.Vector3(moonPos.x, moonPos.y, moonPos.z);
 
     // Dynamically rotate Earth surface based on active mission time
     if (earthMeshRef.current) {
       earthMeshRef.current.rotation.y = (activeMissionTime / EARTH.rotationPeriod) * (2 * Math.PI);
     }
 
-    let currentEarthWorldPos = new THREE.Vector3(0, 0, 0);
-    let currentMoonWorldPos = new THREE.Vector3(0, 0, 0);
+    const earthHeliocentric = projectPlanet(ephemeris.earth.position, EARTH_ORBIT, scaleMode, sunDist);
+    const sunWorldPos = getSolarSystemOffset(referenceFrame, earthHeliocentric, moonRelativeToEarth);
+    const currentEarthWorldPos = earthHeliocentric.clone().add(sunWorldPos);
+    const currentMoonWorldPos = currentEarthWorldPos.clone().add(moonRelativeToEarth);
+
+    earthGroupRef.current?.position.copy(currentEarthWorldPos);
+    if (moonGroupRef.current) {
+      moonGroupRef.current.position.copy(currentMoonWorldPos);
+      moonGroupRef.current.visible = true;
+    }
+    if (sunMeshRef.current) {
+      sunMeshRef.current.position.copy(sunWorldPos);
+      sunMeshRef.current.visible = referenceFrame === 'heliocentric' || appMode === 'system';
+    }
+    sunLightRef.current?.position.copy(sunWorldPos);
 
     // Clear trail breadcrumbs when switching reference frames or app modes
     if (prevFrameRef.current !== referenceFrame || prevAppModeRef.current !== appMode) {
@@ -1274,29 +1198,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     }
 
     if (referenceFrame === 'heliocentric') {
-      const earthAngle = (ephemeris.timeSeconds / EARTH.orbitalPeriod) * (2 * Math.PI);
-      
-      currentEarthWorldPos.set(Math.cos(earthAngle) * sunDist, 0, Math.sin(earthAngle) * sunDist);
-      currentMoonWorldPos.set(
-        currentEarthWorldPos.x + moonX,
-        moonY,
-        currentEarthWorldPos.z + moonZ
-      );
-
-      if (sunMeshRef.current && sunLightRef.current) {
-        sunMeshRef.current.position.set(0, 0, 0);
-        sunLightRef.current.position.set(0, 0, 0);
-        sunMeshRef.current.visible = true;
-      }
-
-      if (earthGroupRef.current) {
-        earthGroupRef.current.position.copy(currentEarthWorldPos);
-      }
-      if (moonGroupRef.current) {
-        moonGroupRef.current.position.copy(currentMoonWorldPos);
-        moonGroupRef.current.visible = true;
-      }
-
       // Heliocentric orbit lines centered at Sun (0, 0, 0)
       if (earthOrbitLineRef.current) {
         earthOrbitLineRef.current.position.set(0, 0, 0);
@@ -1312,29 +1213,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       if (leoBeltLineRef.current) leoBeltLineRef.current.visible = false;
       if (lineOfNodesLineRef.current) lineOfNodesLineRef.current.visible = false;
     } else {
-      // Geocentric / Barycentric: Earth at origin (0, 0, 0)
-      currentEarthWorldPos.set(0, 0, 0);
-      currentMoonWorldPos.set(moonX, moonY, moonZ);
-
-      // In geocentric frame, Sun moves along the Ecliptic plane (Y = 0)
-      const sunAngle = (ephemeris.timeSeconds / EARTH.orbitalPeriod) * (2 * Math.PI) + Math.PI;
-      const sunX = Math.cos(sunAngle) * sunDist;
-      const sunZ = Math.sin(sunAngle) * sunDist;
-      const sunY = 0;
-
-      if (earthGroupRef.current) {
-        earthGroupRef.current.position.set(0, 0, 0);
-      }
-      if (moonGroupRef.current) {
-        moonGroupRef.current.position.set(moonX, moonY, moonZ);
-        moonGroupRef.current.visible = true;
-      }
-      if (sunMeshRef.current && sunLightRef.current) {
-        sunMeshRef.current.position.set(sunX, sunY, sunZ);
-        sunLightRef.current.position.set(sunX, sunY, sunZ);
-        sunMeshRef.current.visible = appMode === 'system';
-      }
-
       if (earthOrbitLineRef.current) {
         earthOrbitLineRef.current.visible = false;
       }
@@ -1342,25 +1220,17 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         composedMoonSunLineRef.current.visible = false;
       }
 
-      // 1. Apparent Ecliptic Solar Orbit Line (Gold ring around Earth in Ecliptic plane Y = 0)
+      // Apparent solar orbit, translated with Earth in the barycentric view.
       if (geocentricSolarOrbitLineRef.current) {
-        const eclipticPts: THREE.Vector3[] = [];
-        for (let i = 0; i <= 256; i++) {
-          const theta = (i / 256) * Math.PI * 2;
-          const ex = Math.cos(theta) * sunDist;
-          const ez = Math.sin(theta) * sunDist;
-          eclipticPts.push(new THREE.Vector3(ex, 0, ez));
-        }
-        geocentricSolarOrbitLineRef.current.geometry.dispose();
-        geocentricSolarOrbitLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(eclipticPts);
+        geocentricSolarOrbitLineRef.current.position.copy(currentEarthWorldPos);
         geocentricSolarOrbitLineRef.current.visible = showGeocentricSolarOrbit && appMode === 'system';
       }
 
       // 2. Earth Umbra Shadow Cone (pointing directly opposite the Sun)
       if (earthUmbraShadowConeRef.current) {
-        const shadowDir = new THREE.Vector3(-sunX, -sunY, -sunZ).normalize();
+        const shadowDir = currentEarthWorldPos.clone().sub(sunWorldPos).normalize();
         const shadowLen = emDistScale * 1.5;
-        earthUmbraShadowConeRef.current.position.set(0, 0, 0);
+        earthUmbraShadowConeRef.current.position.copy(currentEarthWorldPos);
         earthUmbraShadowConeRef.current.scale.set(
           scales.earthRadius * 1.6,
           shadowLen,
@@ -1387,6 +1257,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           const z = Math.sin(theta) * geoRadius;
           geoPts.push(new THREE.Vector3(x, y, z));
         }
+        geoBeltLineRef.current.position.copy(currentEarthWorldPos);
         geoBeltLineRef.current.geometry.dispose();
         geoBeltLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(geoPts);
         geoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
@@ -1402,6 +1273,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           const z = Math.sin(theta) * leoRadius;
           leoPts.push(new THREE.Vector3(x, y, z));
         }
+        leoBeltLineRef.current.position.copy(currentEarthWorldPos);
         leoBeltLineRef.current.geometry.dispose();
         leoBeltLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(leoPts);
         leoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
@@ -1414,6 +1286,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           new THREE.Vector3(-nodeDist, 0, 0),
           new THREE.Vector3(nodeDist, 0, 0),
         ];
+        lineOfNodesLineRef.current.position.copy(currentEarthWorldPos);
         lineOfNodesLineRef.current.geometry.dispose();
         lineOfNodesLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(nodePts);
         lineOfNodesLineRef.current.visible = showLineOfNodes && appMode === 'system';
@@ -1473,31 +1346,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         const node = planetRenderNodesRef.current.get(p.key);
         if (!node) return;
 
-        const cfg = node.config;
-        const dir = normalize(p.position);
-        const pDist = magnitude(p.position);
-
-        let helioPos = new THREE.Vector3();
-        if (scaleMode === 'true') {
-          const scaleFactor = scales.sunEarthDistance / EARTH.semiMajorAxis;
-          helioPos.set(p.position.x * scaleFactor, p.position.y * scaleFactor, p.position.z * scaleFactor);
-        } else {
-          const distScale = cfg.visualDistance * (pDist / cfg.semiMajorAxis);
-          helioPos.set(dir.x * distScale, dir.y * distScale, dir.z * distScale);
-        }
-
-        let worldPos = new THREE.Vector3();
-        if (referenceFrame === 'heliocentric') {
-          worldPos.copy(helioPos);
-          node.orbitLine.position.set(0, 0, 0);
-          node.orbitLine.visible = showPlanetaryOrbits && appMode === 'system';
-        } else {
-          // Geocentric: relative to Earth
-          worldPos.subVectors(helioPos, currentEarthWorldPos);
-          node.orbitLine.visible = false;
-        }
-
-        node.group.position.copy(worldPos);
+        node.group.position.copy(projectPlanet(p.position, node.config, scaleMode, sunDist)).add(sunWorldPos);
+        node.orbitLine.visible = referenceFrame === 'heliocentric' && showPlanetaryOrbits && appMode === 'system';
         node.mesh.rotation.y = p.rotationAngle;
 
         node.group.visible = appMode === 'system';
@@ -1790,7 +1640,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       if (spacecraftMarkerRef.current) spacecraftMarkerRef.current.visible = false;
     }
 
-    if (cameraPreset === 'earth') {
+    if (cameraPreset === 'free') {
+      cameraTargetRef.current.set(0, 0, 0);
+    } else if (cameraPreset === 'earth') {
       cameraTargetRef.current.copy(currentEarthWorldPos);
       cameraSphericalRef.current.radius = scales.earthCameraRadius;
       targetRadiusRef.current = scales.earthCameraRadius;
@@ -1799,7 +1651,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       cameraSphericalRef.current.radius = scales.moonCameraRadius;
       targetRadiusRef.current = scales.moonCameraRadius;
     } else if (cameraPreset === 'sun') {
-      cameraTargetRef.current.set(0, 0, 0);
+      cameraTargetRef.current.copy(sunWorldPos);
       cameraSphericalRef.current.radius = scales.sunCameraRadius;
       targetRadiusRef.current = scales.sunCameraRadius;
     } else if (cameraPreset === 'spaceport' && launchpadMarkerRef.current) {

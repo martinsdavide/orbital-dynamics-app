@@ -1,4 +1,4 @@
-import { SUN, EARTH, MOON, SCALING, PLANET_CONFIGS } from './constants.ts';
+import { SUN, EARTH, MOON, SCALING, PLANET_CONFIGS, type PlanetConfig } from './constants.ts';
 import type { Vector3D, CelestialBodyState, PlanetState, LagrangePoint, EphemerisState, ReferenceFrame, ScaleMode } from '../types/celestial.ts';
 
 export function calculateKeplerianOrbit(
@@ -48,16 +48,17 @@ export function calculateKeplerianOrbit(
   };
 }
 
-export function getEphemerisState(timeSeconds: number): EphemerisState {
-  const earthOrbit = calculateKeplerianOrbit(
-    EARTH.semiMajorAxis,
-    EARTH.eccentricity,
-    EARTH.orbitalPeriod,
-    0,
-    timeSeconds,
-    0.0,
-    SUN.mu
+export function calculatePlanetOrbit(planet: PlanetConfig, timeSeconds: number) {
+  return calculateKeplerianOrbit(
+    planet.semiMajorAxis, planet.eccentricity, planet.orbitalPeriod,
+    planet.inclinationToEclipticRad, timeSeconds, planet.meanAnomalyJ2000Rad ?? 0, SUN.mu
   );
+}
+
+export const EARTH_ORBIT = PLANET_CONFIGS.find(planet => planet.key === 'earth')!;
+
+export function getEphemerisState(timeSeconds: number): EphemerisState {
+  const earthOrbit = calculatePlanetOrbit(EARTH_ORBIT, timeSeconds);
 
   const earthRotation = (timeSeconds / EARTH.rotationPeriod) * (2 * Math.PI);
 
@@ -200,15 +201,7 @@ export function getEphemerisState(timeSeconds: number): EphemerisState {
       };
     }
 
-    const orbit = calculateKeplerianOrbit(
-      cfg.semiMajorAxis,
-      cfg.eccentricity,
-      cfg.orbitalPeriod,
-      cfg.inclinationToEclipticRad,
-      timeSeconds,
-      cfg.meanAnomalyJ2000Rad ?? 0,
-      SUN.mu
-    );
+    const orbit = calculatePlanetOrbit(cfg, timeSeconds);
 
     const rotationAngle = (timeSeconds / cfg.rotationPeriod) * (2 * Math.PI);
     const distFromSun = magnitude(orbit.position);
@@ -258,11 +251,14 @@ export function transformToSceneCoordinates(
 ): Vector3D {
   let relPos = { ...posMeters };
 
-  if (referenceFrame === 'geocentric') {
+  if (referenceFrame !== 'heliocentric') {
+    const earth = ephemeris.earth.position;
+    const moon = ephemeris.moon.position;
+    const moonFraction = referenceFrame === 'barycentric' ? MOON.mass / (EARTH.mass + MOON.mass) : 0;
     relPos = {
-      x: posMeters.x - ephemeris.earth.position.x,
-      y: posMeters.y - ephemeris.earth.position.y,
-      z: posMeters.z - ephemeris.earth.position.z,
+      x: posMeters.x - earth.x - (moon.x - earth.x) * moonFraction,
+      y: posMeters.y - earth.y - (moon.y - earth.y) * moonFraction,
+      z: posMeters.z - earth.z - (moon.z - earth.z) * moonFraction,
     };
   }
 

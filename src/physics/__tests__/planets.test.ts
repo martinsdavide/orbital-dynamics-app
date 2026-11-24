@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getEphemerisState, magnitude } from '../orbitalMechanics.ts';
-import { PLANET_CONFIGS, SUN } from '../constants.ts';
+import { EARTH, MOON, PLANET_CONFIGS, SUN } from '../constants.ts';
+import { Vector3 } from 'three';
+import { getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from '../../components/canvas/PlanetaryScene.ts';
 
 test('Planetary Ephemeris - All 8 Major Planets Populated in EphemerisState', () => {
   assert.equal(PLANET_CONFIGS.length, 8, 'Should have 8 planet configurations');
@@ -84,4 +86,42 @@ test('Planetary Ephemeris - Orbital Velocity Vis-Viva Consistency', () => {
       `${p.name} orbital velocity ${speed} m/s matches vis-viva ${expectedSpeed} m/s within 5%`
     );
   });
+});
+
+test('Planetary scene guides follow the ephemeris in both scales', () => {
+  for (const [scaleMode, sunEarthDistance] of [['visual', 320], ['true', 1200]] as const) {
+    for (const planet of PLANET_CONFIGS) {
+      const guide = samplePlanetOrbit(planet, scaleMode, sunEarthDistance);
+      assert.ok(guide[0].distanceTo(guide.at(-1)!) < 1e-8, `${planet.name} orbit closes`);
+
+      for (const index of [0, 1, 64, 128, 192, 256]) {
+        const time = index / (guide.length - 1) * planet.orbitalPeriod;
+        const { position } = getEphemerisState(time).planets.find(body => body.key === planet.key)!;
+        const mesh = projectPlanet(position, planet, scaleMode, sunEarthDistance);
+        assert.ok(mesh.distanceTo(guide[index]) < 1e-8, `${planet.name} lies on its orbit guide`);
+      }
+
+      const eclipticAngularMomentum = guide[0].clone().cross(guide[1]).y;
+      assert.ok(eclipticAngularMomentum > 0, `${planet.name} revolves prograde`);
+      if (planet.inclinationDeg > 0) {
+        assert.ok(guide.some(point => point.y > 0) && guide.some(point => point.y < 0));
+      }
+    }
+  }
+});
+
+test('Planetary scene uses the selected origin while preserving relative distances', () => {
+  const earth = new Vector3(-30, 0, -320);
+  const moonRelativeToEarth = new Vector3(3, 4, 70);
+  const planet = new Vector3(20, 7, 110);
+  const geocentric = getSolarSystemOffset('geocentric', earth, moonRelativeToEarth);
+  assert.equal(earth.clone().add(geocentric).length(), 0);
+  assert.ok(planet.clone().add(geocentric).distanceTo(planet.clone().sub(earth)) < 1e-10);
+
+  const barycentric = getSolarSystemOffset('barycentric', earth, moonRelativeToEarth);
+  const earthInFrame = earth.clone().add(barycentric);
+  const moonInFrame = earthInFrame.clone().add(moonRelativeToEarth);
+  const centerOfMass = earthInFrame.clone().addScaledVector(moonInFrame, MOON.mass / EARTH.mass);
+  assert.ok(centerOfMass.length() < 1e-10);
+  assert.ok(planet.clone().add(barycentric).sub(earthInFrame).distanceTo(planet.clone().sub(earth)) < 1e-10);
 });
