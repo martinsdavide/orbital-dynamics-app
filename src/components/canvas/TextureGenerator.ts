@@ -57,12 +57,30 @@ export function createEarthTexture(): THREE.CanvasTexture {
   drawContinentBlob(width * 0.52, height * 0.62, width * 0.08, height * 0.12, '#2d6a3f', 0.75); // Congo
   // Australia
   drawContinentBlob(width * 0.85, height * 0.70, width * 0.08, height * 0.09, '#b26e38', 0.6); // Outback
-  // Polar Ice Caps
-  // North Pole
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height * 0.07);
-  // South Pole (Antarctica)
-  drawContinentBlob(width * 0.5, height * 0.95, width * 0.45, height * 0.07, '#e8f4f8', 0.4);
+  // Texture rows 0 and height map to the north and south spin poles.
+  // Cover every longitude at each pole, with a continuous ice edge at the seam.
+  const drawPolarIce = (north: boolean, depth: number, edgeVariation: number) => {
+    const poleY = north ? 0 : height;
+    const direction = north ? 1 : -1;
+    const gradient = ctx.createLinearGradient(0, poleY, 0, poleY + direction * height * (depth + edgeVariation));
+    gradient.addColorStop(0, '#ffffff');
+    gradient.addColorStop(0.58, '#eff8fc');
+    gradient.addColorStop(1, north ? 'rgba(176, 212, 231, 0.65)' : '#b6d5e4');
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(0, poleY);
+    for (let i = 0; i <= 256; i++) {
+      const longitude = i / 256 * Math.PI * 2;
+      const edge = depth + edgeVariation * (0.65 * Math.cos(3 * longitude) + 0.35 * Math.sin(7 * longitude));
+      ctx.lineTo(i / 256 * width, poleY + direction * height * edge);
+    }
+    ctx.lineTo(width, poleY);
+    ctx.closePath();
+    ctx.fill();
+  };
+  drawPolarIce(true, 0.068, 0.012);
+  drawPolarIce(false, 0.105, 0.026);
 
   // Cloud Layer Swirls
   ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
@@ -75,6 +93,7 @@ export function createEarthTexture(): THREE.CanvasTexture {
   }
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
   return texture;

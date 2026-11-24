@@ -109,6 +109,10 @@ export function getScalingConfig(scaleMode: ScaleMode) {
   }
 }
 
+const PLANET_BADGE_WIDTH = 80;
+const PLANET_BADGE_HEIGHT = 20;
+const PLANET_BADGE_OFFSET = PLANET_BADGE_HEIGHT / 2 + 4;
+
 const MAX_TRAIL_POINTS = 4000;
 
 export type CameraPreset =
@@ -416,6 +420,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       metalness: 0.1,
     });
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
+    // Apply the fixed ecliptic tilt after the surface spins around its local Y axis.
+    earthMesh.rotation.order = 'ZYX';
     earthMesh.rotation.z = EARTH.axialTilt;
     earthGroup.add(earthMesh);
     earthMeshRef.current = earthMesh;
@@ -461,8 +467,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       depthTest: false,
     });
     const earthLabelSprite = new THREE.Sprite(earthSpriteMat);
-    earthLabelSprite.position.set(0, SCALING.visual.earthRadius + 6, 0);
-    earthLabelSprite.scale.set(16, 4, 1);
+    earthLabelSprite.position.set(0, SCALING.visual.earthRadius + PLANET_BADGE_OFFSET, 0);
+    earthLabelSprite.scale.set(PLANET_BADGE_WIDTH, PLANET_BADGE_HEIGHT, 1);
     earthGroup.add(earthLabelSprite);
     earthLabelSpriteRef.current = earthLabelSprite;
 
@@ -609,8 +615,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         depthTest: false,
       });
       const labelSprite = new THREE.Sprite(spriteMat);
-      labelSprite.position.set(0, cfg.visualRadius + 6, 0);
-      labelSprite.scale.set(16, 4, 1);
+      labelSprite.position.set(0, cfg.visualRadius + PLANET_BADGE_OFFSET, 0);
+      labelSprite.scale.set(PLANET_BADGE_WIDTH, PLANET_BADGE_HEIGHT, 1);
       planetGroup.add(labelSprite);
 
       const orbitGeo = new THREE.BufferGeometry();
@@ -698,8 +704,12 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     scene.add(earthUmbraShadowCone);
     earthUmbraShadowConeRef.current = earthUmbraShadowCone;
 
-    // GEO & LEO Belts in Earth's equatorial plane
-    const geoBeltGeo = new THREE.BufferGeometry();
+    // Local equatorial circles inherit Earth's tilt and scale from the mesh.
+    const equatorialOrbit = (radius: number, segments: number) => {
+      const points = new THREE.EllipseCurve(0, 0, radius, radius).getPoints(segments);
+      return new THREE.BufferGeometry().setFromPoints(points.map(({ x, y }) => new THREE.Vector3(x, 0, y)));
+    };
+    const geoBeltGeo = equatorialOrbit(SCALING.visual.earthRadius * 42164 / 6371, 96);
     const geoBeltMat = new THREE.LineBasicMaterial({
       color: 0x00f0ff,
       transparent: true,
@@ -710,7 +720,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     earthMesh.add(geoBeltLine);
     geoBeltLineRef.current = geoBeltLine;
 
-    const leoBeltGeo = new THREE.BufferGeometry();
+    const leoBeltGeo = equatorialOrbit(SCALING.visual.earthRadius * 1.08, 64);
     const leoBeltMat = new THREE.LineBasicMaterial({
       color: 0x38bdf8,
       transparent: true,
@@ -1073,7 +1083,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   }, [selectedSpaceport]);
 
   useEffect(() => {
-    const { sunEarthDistance } = getScalingConfig(scaleMode);
+    const { earthRadius, sunEarthDistance } = getScalingConfig(scaleMode);
+    if (earthLabelSpriteRef.current) earthLabelSpriteRef.current.position.y = earthRadius + PLANET_BADGE_OFFSET;
     const earthOrbit = samplePlanetOrbit(EARTH_ORBIT, scaleMode, sunEarthDistance);
     if (earthOrbitLineRef.current) {
       earthOrbitLineRef.current.geometry.setFromPoints(earthOrbit).computeBoundingSphere();
@@ -1083,9 +1094,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       geocentricSolarOrbitLineRef.current.geometry.setFromPoints(sunOrbit).computeBoundingSphere();
     }
 
-    planetRenderNodesRef.current.forEach(({ config, mesh, orbitLine }) => {
-      const trueRadius = 3 * config.radius / EARTH.radius;
-      mesh.scale.setScalar(scaleMode === 'true' ? trueRadius / config.visualRadius : 1);
+    planetRenderNodesRef.current.forEach(({ config, mesh, orbitLine, labelSprite }) => {
+      const radius = scaleMode === 'true' ? 3 * config.radius / EARTH.radius : config.visualRadius;
+      mesh.scale.setScalar(radius / config.visualRadius);
+      labelSprite.position.y = radius + PLANET_BADGE_OFFSET;
       orbitLine.geometry.setFromPoints(samplePlanetOrbit(config, scaleMode, sunEarthDistance)).computeBoundingSphere();
     });
   }, [scaleMode]);
@@ -1243,41 +1255,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         earthUmbraShadowConeRef.current.visible = showEarthUmbraShadow && appMode === 'system';
       }
 
-      // 3. GEO & LEO Belts in Earth's equatorial plane (tilted by EARTH.axialTilt around Z axis)
-      const cosTilt = Math.cos(EARTH.axialTilt);
-      const sinTilt = Math.sin(EARTH.axialTilt);
-
-      if (geoBeltLineRef.current) {
-        const geoRadius = scales.earthRadius * (42164 / 6371);
-        const geoPts: THREE.Vector3[] = [];
-        for (let i = 0; i <= 96; i++) {
-          const theta = (i / 96) * Math.PI * 2;
-          const x = Math.cos(theta) * geoRadius * cosTilt;
-          const y = Math.cos(theta) * geoRadius * sinTilt;
-          const z = Math.sin(theta) * geoRadius;
-          geoPts.push(new THREE.Vector3(x, y, z));
-        }
-        geoBeltLineRef.current.position.copy(currentEarthWorldPos);
-        geoBeltLineRef.current.geometry.dispose();
-        geoBeltLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(geoPts);
-        geoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
-      }
-
-      if (leoBeltLineRef.current) {
-        const leoRadius = scales.earthRadius * 1.08;
-        const leoPts: THREE.Vector3[] = [];
-        for (let i = 0; i <= 64; i++) {
-          const theta = (i / 64) * Math.PI * 2;
-          const x = Math.cos(theta) * leoRadius * cosTilt;
-          const y = Math.cos(theta) * leoRadius * sinTilt;
-          const z = Math.sin(theta) * leoRadius;
-          leoPts.push(new THREE.Vector3(x, y, z));
-        }
-        leoBeltLineRef.current.position.copy(currentEarthWorldPos);
-        leoBeltLineRef.current.geometry.dispose();
-        leoBeltLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(leoPts);
-        leoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
-      }
+      if (geoBeltLineRef.current) geoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
+      if (leoBeltLineRef.current) leoBeltLineRef.current.visible = showGeoLeoBelts && appMode === 'system';
 
       // 4. Ecliptic-Lunar Line of Nodes (intersection of Lunar orbit plane and Ecliptic Y=0 along X-axis)
       if (lineOfNodesLineRef.current) {
@@ -1319,10 +1298,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       moonOrbitLineRef.current.visible = showMoonOrbit;
     }
 
-    // Body Rotations
-    if (earthMeshRef.current) {
-      earthMeshRef.current.rotation.y = ephemeris.earth.rotationAngle;
-    }
     if (moonMeshRef.current) {
       moonMeshRef.current.rotation.y = moonAngle;
     }
