@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { RocketTelemetry } from '../../types/rocket';
 import { EARTH } from '../../physics/constants';
+import { calculateEarthEscapeSpeed, KARMAN_LINE_ALTITUDE } from '../../physics/rocketDynamics';
 import { Activity, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TelemetryHUDProps {
@@ -41,6 +42,9 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
     );
   }
 
+  const escapeSpeed = calculateEarthEscapeSpeed(telemetry.altitude);
+  const crossingTime = telemetry.karmanCrossingTime;
+
   return (
     <div className="absolute top-16 right-4 z-20 w-80 bg-gray-950/85 backdrop-blur-md border border-gray-800/80 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-3 font-mono">
       <div className="flex items-center justify-between pb-2 border-b border-gray-800">
@@ -78,6 +82,15 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
               ? `${(telemetry.altitude / 1000).toFixed(1)} km`
               : `${Math.round(telemetry.altitude / 1000)} km`}
           </div>
+          <span
+            role="status"
+            className={`block text-[10px] ${crossingTime === undefined ? 'text-gray-400' : 'text-emerald-300'}`}
+            title="The Kármán line is a conventional boundary of space. The atmosphere extends above it."
+          >
+            {crossingTime === undefined
+              ? `Kármán line at ${KARMAN_LINE_ALTITUDE / 1000} km`
+              : `Kármán line crossed · T+${crossingTime.toFixed(1)} s`}
+          </span>
         </div>
 
         <div className="bg-gray-900/80 p-2.5 rounded-xl border border-gray-800">
@@ -87,6 +100,9 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
             <span className="text-[10px] text-gray-400 block font-normal">
               Mach {telemetry.machNumber.toFixed(2)}
             </span>
+          </div>
+          <div className="text-[10px] text-gray-400" title="Earth escape speed at the current altitude">
+            Escape speed: <span className="text-amber-300">{Math.round(escapeSpeed)} m/s</span>
           </div>
         </div>
 

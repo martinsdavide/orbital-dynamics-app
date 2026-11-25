@@ -33,6 +33,7 @@ export interface RocketPreset {
 export interface RocketTelemetry {
   time: number; // seconds from launch
   altitude: number; // m
+  karmanCrossingTime?: number; // seconds from launch at the first upward 100 km crossing
   downrangeDistance: number; // m
   velocity: number; // m/s (inertial)
   velocityEarthRelative: number; // m/s

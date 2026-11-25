@@ -34,6 +34,7 @@ export class LaunchPaths {
     new THREE.LineBasicMaterial({ color: 0xffc86c, toneMapped: false }),
   );
   private readonly points = new THREE.BufferAttribute(new Float32Array(TRAIL_CAPACITY * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  private readonly karmanMarker = new ViewportBillboard(createPlanetLabelTexture('100 km', '#7ee5b5'), 76, 19);
   private readonly lastPoint = new THREE.Vector3();
   private count = 0;
   private sampleInterval = 0.75;
@@ -50,6 +51,9 @@ export class LaunchPaths {
     this.orbit.name = 'ISS low Earth orbit';
     this.station.name = 'International Space Station';
     this.trail.name = 'Recorded rocket trail';
+    this.karmanMarker.name = 'Kármán line crossing';
+    this.karmanMarker.visible = false;
+    this.karmanMarker.center.y = -0.18;
     this.trail.geometry.setAttribute('position', this.points);
     this.trail.geometry.setDrawRange(0, 0);
     this.trail.frustumCulled = false;
@@ -70,7 +74,7 @@ export class LaunchPaths {
     label.position.y = 0.04;
     label.center.y = -0.18;
     this.station.add(this.chassis, label);
-    this.group.add(this.orbit, this.station, this.trail);
+    this.group.add(this.orbit, this.station, this.trail, this.karmanMarker);
     scene.add(this.group);
   }
 
@@ -96,9 +100,19 @@ export class LaunchPaths {
       this.lastSample = 0;
       this.extent = 0;
       this.trail.geometry.setDrawRange(0, 0);
+      this.karmanMarker.visible = false;
       this.lastTime = -1;
     }
     if (telemetry.phase === 'pad' || telemetry.time <= this.lastTime) return;
+    const crossingTime = telemetry.karmanCrossingTime;
+    if (crossingTime !== undefined && !this.karmanMarker.visible) {
+      this.karmanMarker.position.subVectors(rocketPosition, center);
+      if (this.lastTime >= 0) {
+        const fraction = THREE.MathUtils.clamp((crossingTime - this.lastTime) / (telemetry.time - this.lastTime), 0, 1);
+        this.karmanMarker.position.lerp(this.lastPoint, 1 - fraction);
+      }
+      this.karmanMarker.visible = true;
+    }
     this.lastTime = telemetry.time;
 
     this.lastPoint.subVectors(rocketPosition, center);

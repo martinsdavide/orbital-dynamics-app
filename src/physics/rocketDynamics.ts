@@ -1,7 +1,49 @@
-import { EARTH, ATMOSPHERE } from './constants';
+import { EARTH, ATMOSPHERE } from './constants.ts';
 import type { RocketPreset, RocketTelemetry } from '../types/rocket';
 import type { Spaceport } from '../types/spaceport';
-import { getAtmosphericState } from './atmosphere';
+import { getAtmosphericState } from './atmosphere.ts';
+
+export const KARMAN_LINE_ALTITUDE = 100_000;
+
+export function calculateEarthEscapeSpeed(altitude: number): number {
+  return Math.sqrt(2 * EARTH.mu / (EARTH.radius + altitude));
+}
+
+export function createPadTelemetry(rocket: RocketPreset, site: Spaceport): RocketTelemetry {
+  let totalWetMass = rocket.fairingMass;
+  for (const stage of rocket.stages) {
+    totalWetMass += stage.dryMass + stage.fuelMass;
+  }
+  return {
+    time: 0,
+    altitude: site.elevation,
+    downrangeDistance: 0,
+    velocity: site.equatorialBoostVelocity,
+    velocityEarthRelative: 0,
+    verticalSpeed: 0,
+    horizontalSpeed: 0,
+    machNumber: 0,
+    dynamicPressure: 0,
+    maxQ: 0,
+    accelerationG: 1.0,
+    totalMass: totalWetMass,
+    remainingFuel: rocket.stages[0].fuelMass,
+    stageFuelFraction: 1.0,
+    activeStageIndex: 0,
+    thrust: 0,
+    twr: 0,
+    pitchAngle: 90,
+    flightPathAngle: 90,
+    apoapsis: site.elevation,
+    periapsis: -EARTH.radius,
+    orbitalEnergy: 0,
+    deltaVExpended: 0,
+    deltaVRemaining: calculateTotalRocketDeltaV(rocket),
+    isOrbitAchieved: false,
+    statusMessage: 'Pad clear. Ready for countdown and liftoff.',
+    phase: 'pad',
+  };
+}
 
 export interface RocketSimulationStepInput {
   timeSeconds: number;
@@ -21,36 +63,9 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
     const latRad = (spaceport.latitude * Math.PI) / 180;
     const vSurface = (2 * Math.PI * EARTH.radius * Math.cos(latRad)) / EARTH.rotationPeriod;
 
-    let totalWetMass = rocket.fairingMass;
-    for (const stage of rocket.stages) {
-      totalWetMass += stage.dryMass + stage.fuelMass;
-    }
-
     return {
-      ...telemetry,
-      time: 0,
-      altitude: spaceport.elevation,
-      downrangeDistance: 0,
+      ...createPadTelemetry(rocket, spaceport),
       velocity: vSurface,
-      velocityEarthRelative: 0,
-      verticalSpeed: 0,
-      horizontalSpeed: 0,
-      machNumber: 0,
-      dynamicPressure: 0,
-      maxQ: 0,
-      accelerationG: 1.0,
-      totalMass: totalWetMass,
-      remainingFuel: rocket.stages[0].fuelMass,
-      stageFuelFraction: 1.0,
-      activeStageIndex: 0,
-      thrust: 0,
-      twr: 0,
-      pitchAngle: 90,
-      flightPathAngle: 90,
-      apoapsis: spaceport.elevation,
-      periapsis: -EARTH.radius,
-      deltaVExpended: 0,
-      deltaVRemaining: calculateTotalRocketDeltaV(rocket),
       statusMessage: 'Ready for liftoff at ' + spaceport.name,
     };
   }
@@ -149,6 +164,11 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
 
   altitude += verticalSpeed * dt;
   downrangeDistance += horizontalSpeed * dt;
+  let karmanCrossingTime = telemetry.karmanCrossingTime;
+  if (karmanCrossingTime === undefined && telemetry.altitude < KARMAN_LINE_ALTITUDE && altitude >= KARMAN_LINE_ALTITUDE) {
+    const fraction = (KARMAN_LINE_ALTITUDE - telemetry.altitude) / (altitude - telemetry.altitude);
+    karmanCrossingTime = telemetry.time + fraction * dt;
+  }
 
   if (atmo.dynamicPressure > maxQ) {
     maxQ = atmo.dynamicPressure;
@@ -189,6 +209,7 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
   return {
     time,
     altitude: Math.max(0, altitude),
+    karmanCrossingTime,
     downrangeDistance,
     velocity: inertialSpeed,
     velocityEarthRelative,

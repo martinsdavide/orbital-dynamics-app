@@ -13,54 +13,16 @@ import { FlightChartModal } from './components/ui/FlightChartModal';
 import { InfoModal } from './components/ui/InfoModal';
 
 import type { ReferenceFrame, ScaleMode } from './types/celestial';
-import type { Spaceport } from './types/spaceport';
-import type { RocketPreset, RocketTelemetry } from './types/rocket';
 import type { EarthMoonTrajectory } from './types/trajectory';
 
 import { SPACEPORTS } from './data/spaceports';
 import { ROCKET_PRESETS } from './data/rockets';
 import { getEphemerisState } from './physics/orbitalMechanics';
-import { simulateRocketAscentStep, calculateTotalRocketDeltaV } from './physics/rocketDynamics';
+import { createPadTelemetry, simulateRocketAscentStep } from './physics/rocketDynamics';
 import { solveEarthMoonTrajectory } from './physics/trajectorySolver';
 
 const DEFAULT_LAUNCH_SITE = SPACEPORTS.find(site => site.id === 'spacex_starbase')!;
 const DEFAULT_LAUNCH_ROCKET = ROCKET_PRESETS.find(rocket => rocket.id === 'starship_v3')!;
-
-function createPadTelemetry(rocket: RocketPreset, site: Spaceport): RocketTelemetry {
-  let totalWetMass = rocket.fairingMass;
-  for (const stage of rocket.stages) {
-    totalWetMass += stage.dryMass + stage.fuelMass;
-  }
-  return {
-    time: 0,
-    altitude: site.elevation,
-    downrangeDistance: 0,
-    velocity: site.equatorialBoostVelocity,
-    velocityEarthRelative: 0,
-    verticalSpeed: 0,
-    horizontalSpeed: 0,
-    machNumber: 0,
-    dynamicPressure: 0,
-    maxQ: 0,
-    accelerationG: 1.0,
-    totalMass: totalWetMass,
-    remainingFuel: rocket.stages[0].fuelMass,
-    stageFuelFraction: 1.0,
-    activeStageIndex: 0,
-    thrust: 0,
-    twr: 0,
-    pitchAngle: 90,
-    flightPathAngle: 90,
-    apoapsis: site.elevation,
-    periapsis: -6.371e6,
-    orbitalEnergy: 0,
-    deltaVExpended: 0,
-    deltaVRemaining: calculateTotalRocketDeltaV(rocket),
-    isOrbitAchieved: false,
-    statusMessage: 'Pad clear. Ready for countdown and liftoff.',
-    phase: 'pad',
-  };
-}
 
 export function App() {
   const viewportRef = useRef<ThreeViewportHandle>(null);

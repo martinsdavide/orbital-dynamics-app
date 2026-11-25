@@ -1,4 +1,4 @@
-import { ATMOSPHERE } from './constants';
+import { ATMOSPHERE } from './constants.ts';
 
 export interface AtmosphericState {
   temperature: number; // Kelvin
