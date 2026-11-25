@@ -686,10 +686,11 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       planetGroup.add(labelSprite);
 
       const orbitGeo = new THREE.BufferGeometry();
+      const isNeptuneOrbit = cfg.key === 'neptune';
       const orbitMat = new THREE.LineBasicMaterial({
-        color: cfg.color,
+        color: isNeptuneOrbit ? 0x639bff : cfg.color,
         transparent: true,
-        opacity: 0.45,
+        opacity: isNeptuneOrbit ? 0.8 : 0.45,
         linewidth: 1.5,
       });
       const orbitLine = new THREE.Line(orbitGeo, orbitMat);
