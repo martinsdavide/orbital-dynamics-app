@@ -203,6 +203,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const sunLightRef = useRef<THREE.PointLight | null>(null);
   const earthGroupRef = useRef<THREE.Group | null>(null);
   const earthMeshRef = useRef<THREE.Mesh | null>(null);
+  const earthSunDirectionRef = useRef(new THREE.Vector3(-1, 0, 0));
   const earthAtmoRef = useRef<THREE.Mesh | null>(null);
   const earthRotationAxisRef = useRef<THREE.Mesh | null>(null);
   const moonGroupRef = useRef<THREE.Group | null>(null);
@@ -436,6 +437,20 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       map: earthTex,
       roughness: 0.88,
     });
+    const earthSunDirection = earthSunDirectionRef.current;
+    earthMat.onBeforeCompile = shader => {
+      shader.uniforms.earthSunDirection = { value: earthSunDirection };
+      // Boost surface color in direct sunlight, fading to zero at the terminator.
+      shader.fragmentShader = `uniform vec3 earthSunDirection;\n${shader.fragmentShader}`.replace(
+        '#include <lights_fragment_end>',
+        `
+          #include <lights_fragment_end>
+          vec3 sunDirection = mat3(viewMatrix) * earthSunDirection;
+          float daylight = max(dot(normal, sunDirection), 0.0);
+          reflectedLight.directDiffuse += diffuseColor.rgb * (0.65 * daylight);
+        `
+      );
+    };
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
     // Apply the fixed ecliptic tilt after the surface spins around its local Y axis.
     earthMesh.rotation.order = 'ZYX';
@@ -1309,6 +1324,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       sunMeshRef.current.visible = referenceFrame === 'heliocentric' || appMode === 'system';
     }
     sunLightRef.current?.position.copy(sunWorldPos);
+    earthSunDirectionRef.current.subVectors(sunWorldPos, currentEarthWorldPos).normalize();
 
     // Clear trail breadcrumbs when switching reference frames or app modes
     if (prevFrameRef.current !== referenceFrame || prevAppModeRef.current !== appMode) {
