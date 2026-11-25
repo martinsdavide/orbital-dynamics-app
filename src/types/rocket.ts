@@ -58,5 +58,5 @@ export interface RocketTelemetry {
   deltaVRemaining: number; // m/s
   isOrbitAchieved: boolean;
   statusMessage: string;
-  phase: 'pad' | 'boost_stage1' | 'staging_1_2' | 'boost_stage2' | 'staging_2_3' | 'boost_stage3' | 'parking_orbit' | 'tli_burn' | 'lunar_transit' | 'loi_burn' | 'lunar_orbit' | 'abort';
+  phase: 'pad' | 'boost_stage1' | 'staging_1_2' | 'boost_stage2' | 'staging_2_3' | 'boost_stage3' | 'parking_orbit' | 'coast' | 'tli_burn' | 'lunar_transit' | 'loi_burn' | 'lunar_orbit' | 'abort';
 }

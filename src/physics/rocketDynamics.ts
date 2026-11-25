@@ -56,9 +56,43 @@ export interface RocketSimulationStepInput {
   manualPitchOverride?: number;
 }
 
+function dragPerMass(altitude: number, relativeSpeed: number, diameter: number, mass: number): number {
+  const atmosphere = getAtmosphericState(altitude, relativeSpeed);
+  const area = Math.PI * (diameter / 2) ** 2;
+  return atmosphere.dynamicPressure * atmosphere.dragCoefficient * area / mass;
+}
+
+function coastStep(altitude: number, verticalSpeed: number, tangentialSpeed: number, boost: number, diameter: number, mass: number, dt: number) {
+  // Inertial polar coordinates. The apparent radial and tangential terms
+  // account for the rotating local frame and do not contribute to felt G-load.
+  const rates = (height: number, radial: number, tangential: number) => {
+    const radius = EARTH.radius + Math.max(0, height);
+    const horizontal = tangential - boost;
+    const relativeSpeed = Math.hypot(radial, horizontal);
+    const drag = dragPerMass(Math.max(0, height), relativeSpeed, diameter, mass);
+    const dragFactor = relativeSpeed > 0 ? drag / relativeSpeed : 0;
+    return {
+      radial: (tangential ** 2) / radius - EARTH.mu / radius ** 2 - dragFactor * radial,
+      tangential: -radial * tangential / radius - dragFactor * horizontal,
+      downrange: EARTH.radius * tangential / radius - boost,
+    };
+  };
+
+  const initial = rates(altitude, verticalSpeed, tangentialSpeed);
+  const half = dt / 2;
+  const midpoint = rates(altitude + verticalSpeed * half, verticalSpeed + initial.radial * half, tangentialSpeed + initial.tangential * half);
+  return {
+    altitude: altitude + (verticalSpeed + initial.radial * half) * dt,
+    verticalSpeed: verticalSpeed + midpoint.radial * dt,
+    horizontalSpeed: tangentialSpeed + midpoint.tangential * dt - boost,
+    downrange: midpoint.downrange * dt,
+  };
+}
+
 export function simulateRocketAscentStep(input: RocketSimulationStepInput): RocketTelemetry {
   const { dt, rocket, spaceport, telemetry, userThrottle, autoGuidance, manualPitchOverride } = input;
 
+  if (telemetry.phase === 'abort') return telemetry;
   if (telemetry.phase === 'pad') {
     const latRad = (spaceport.latitude * Math.PI) / 180;
     const vSurface = (2 * Math.PI * EARTH.radius * Math.cos(latRad)) / EARTH.rotationPeriod;
@@ -82,36 +116,37 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
     totalMass,
     maxQ,
     deltaVExpended,
-    phase,
     pitchAngle,
   } = telemetry;
+  let phase: RocketTelemetry['phase'] = telemetry.phase;
 
   const currentStage = rocket.stages[activeStageIndex];
-  if (!currentStage) {
-    return { ...telemetry, phase: 'parking_orbit', statusMessage: 'All stages depleted. In orbit.' };
-  }
-
+  const coasting = phase === 'coast' || phase === 'parking_orbit' || !currentStage ||
+    (activeStageIndex === rocket.stages.length - 1 && remainingFuel <= 0.1);
+  const diameter = (currentStage ?? rocket.stages.at(-1))?.diameter ?? rocket.diameter;
+  const boost = spaceport.equatorialBoostVelocity;
+  const atmo = getAtmosphericState(altitude, Math.hypot(verticalSpeed, horizontalSpeed));
   time += dt;
 
-  const atmo = getAtmosphericState(altitude, Math.sqrt(verticalSpeed * verticalSpeed + horizontalSpeed * horizontalSpeed));
-
   const pressureRatio = Math.max(0, Math.min(1, atmo.pressure / ATMOSPHERE.seaLevelPressure));
-  const currentThrust = (currentStage.thrustVacuum - (currentStage.thrustVacuum - currentStage.thrustSeaLevel) * pressureRatio) * userThrottle;
-  const currentIsp = currentStage.ispVacuum - (currentStage.ispVacuum - currentStage.ispSeaLevel) * pressureRatio;
-
-  const massFlowRate = currentIsp > 0 ? currentThrust / (currentIsp * ATMOSPHERE.standardGravity) : 0;
-  const fuelBurned = Math.min(remainingFuel, massFlowRate * dt);
+  const requestedThrust = !coasting && currentStage
+    ? (currentStage.thrustVacuum - (currentStage.thrustVacuum - currentStage.thrustSeaLevel) * pressureRatio) * userThrottle
+    : 0;
+  const currentIsp = currentStage
+    ? currentStage.ispVacuum - (currentStage.ispVacuum - currentStage.ispSeaLevel) * pressureRatio
+    : 0;
+  const requestedFuel = currentIsp > 0 ? requestedThrust * dt / (currentIsp * ATMOSPHERE.standardGravity) : 0;
+  const fuelBurned = Math.min(remainingFuel, requestedFuel);
+  const burnThrust = requestedFuel > 0 ? requestedThrust * fuelBurned / requestedFuel : 0;
   remainingFuel -= fuelBurned;
   totalMass -= fuelBurned;
-
-  const stageFuelFraction = currentStage.fuelMass > 0 ? Math.max(0, remainingFuel / currentStage.fuelMass) : 0;
 
   if (totalMass > 0 && fuelBurned > 0) {
     const dV = currentIsp * ATMOSPHERE.standardGravity * Math.log((totalMass + fuelBurned) / totalMass);
     deltaVExpended += dV;
   }
 
-  if (autoGuidance) {
+  if (!coasting && autoGuidance) {
     if (altitude < 1200) {
       pitchAngle = 90;
     } else if (altitude < 10000) {
@@ -125,87 +160,87 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
     } else {
       pitchAngle = 0;
     }
-  } else if (manualPitchOverride !== undefined) {
+  } else if (!coasting && manualPitchOverride !== undefined) {
     pitchAngle = manualPitchOverride;
   }
 
-  const pitchRad = (pitchAngle * Math.PI) / 180;
+  let accelerationG = 0;
+  if (coasting) {
+    const coast = coastStep(altitude, verticalSpeed, horizontalSpeed + boost, boost, diameter, totalMass, dt);
+    altitude = coast.altitude;
+    verticalSpeed = coast.verticalSpeed;
+    horizontalSpeed = coast.horizontalSpeed;
+    downrangeDistance += coast.downrange;
+  } else {
+    const pitchRad = pitchAngle * Math.PI / 180;
+    const radius = EARTH.radius + altitude;
+    const velAngle = Math.atan2(verticalSpeed, Math.max(1, horizontalSpeed));
+    const drag = dragPerMass(altitude, velocityEarthRelative, diameter, totalMass);
+    const forwardAcceleration = burnThrust * Math.cos(pitchRad) / totalMass - drag * Math.cos(velAngle);
+    const radialAcceleration = burnThrust * Math.sin(pitchRad) / totalMass - drag * Math.sin(velAngle);
+    accelerationG = Math.hypot(forwardAcceleration, radialAcceleration) / ATMOSPHERE.standardGravity;
 
-  const crossSectionArea = Math.PI * Math.pow(currentStage.diameter / 2, 2);
-  const dragForce = 0.5 * atmo.density * Math.pow(velocityEarthRelative, 2) * atmo.dragCoefficient * crossSectionArea;
+    verticalSpeed += (radialAcceleration - EARTH.mu / radius ** 2 + horizontalSpeed ** 2 / radius) * dt;
+    horizontalSpeed += forwardAcceleration * dt;
+    altitude += verticalSpeed * dt;
+    downrangeDistance += horizontalSpeed * dt;
+  }
 
-  const r = EARTH.radius + altitude;
-  const localGravity = (EARTH.mu / (r * r));
-
-  const centrifugalAccel = (horizontalSpeed * horizontalSpeed) / r;
-
-  const thrustAlongPitch = currentThrust;
-  const dragAgainstVelocity = dragForce;
-
-  const velAngleRad = Math.atan2(verticalSpeed, Math.max(1, horizontalSpeed));
-
-  const fThrustX = thrustAlongPitch * Math.cos(pitchRad);
-  const fThrustY = thrustAlongPitch * Math.sin(pitchRad);
-
-  const fDragX = dragAgainstVelocity * Math.cos(velAngleRad);
-  const fDragY = dragAgainstVelocity * Math.sin(velAngleRad);
-
-  const accelX = (fThrustX - fDragX) / totalMass;
-  const accelY = (fThrustY - fDragY) / totalMass - localGravity + centrifugalAccel;
-
-  const totalAccelMag = Math.sqrt(accelX * accelX + (accelY + localGravity) * (accelY + localGravity));
-  const accelerationG = totalAccelMag / ATMOSPHERE.standardGravity;
-
-  horizontalSpeed += accelX * dt;
-  verticalSpeed += accelY * dt;
-
-  velocityEarthRelative = Math.sqrt(horizontalSpeed * horizontalSpeed + verticalSpeed * verticalSpeed);
-  const inertialSpeed = Math.sqrt(Math.pow(horizontalSpeed + spaceport.equatorialBoostVelocity, 2) + verticalSpeed * verticalSpeed);
-
-  altitude += verticalSpeed * dt;
-  downrangeDistance += horizontalSpeed * dt;
+  const hitSurface = coasting && altitude <= 0 && verticalSpeed < 0;
+  altitude = Math.max(0, altitude);
+  if (hitSurface) {
+    verticalSpeed = 0;
+    horizontalSpeed = 0;
+  }
+  velocityEarthRelative = Math.hypot(horizontalSpeed, verticalSpeed);
+  const tangentialSpeed = horizontalSpeed + boost;
+  const inertialSpeed = Math.hypot(tangentialSpeed, verticalSpeed);
+  const currentAtmosphere = getAtmosphericState(altitude, velocityEarthRelative);
   let karmanCrossingTime = telemetry.karmanCrossingTime;
   if (karmanCrossingTime === undefined && telemetry.altitude < KARMAN_LINE_ALTITUDE && altitude >= KARMAN_LINE_ALTITUDE) {
     const fraction = (KARMAN_LINE_ALTITUDE - telemetry.altitude) / (altitude - telemetry.altitude);
     karmanCrossingTime = telemetry.time + fraction * dt;
   }
 
-  if (atmo.dynamicPressure > maxQ) {
-    maxQ = atmo.dynamicPressure;
-  }
+  maxQ = Math.max(maxQ, currentAtmosphere.dynamicPressure);
+
+  const radius = EARTH.radius + altitude;
+  const specificEnergy = inertialSpeed ** 2 / 2 - EARTH.mu / radius;
+  const angularMomentum = radius * tangentialSpeed;
+  const eccentricity = Math.sqrt(Math.max(0, 1 + 2 * specificEnergy * angularMomentum ** 2 / EARTH.mu ** 2));
+  const periapsis = angularMomentum ** 2 / (EARTH.mu * (1 + eccentricity)) - EARTH.radius;
+  const apoapsis = specificEnergy < 0 ? (-EARTH.mu / (2 * specificEnergy)) * (1 + eccentricity) - EARTH.radius : 0;
+  const isOrbitAchieved = specificEnergy < 0 && periapsis > 140000;
+  const engineCutoff = coasting || (remainingFuel <= 0.1 && activeStageIndex === rocket.stages.length - 1);
+  const thrust = engineCutoff ? 0 : burnThrust;
+  const twr = thrust / (totalMass * EARTH.mu / radius ** 2);
+  const flightPathAngle = Math.atan2(verticalSpeed, tangentialSpeed) * 180 / Math.PI;
 
   let statusMessage = 'Stage ' + (activeStageIndex + 1) + ' firing (' + Math.round(pitchAngle) + '° pitch)';
-  if (remainingFuel <= 0.1) {
-    if (activeStageIndex + 1 < rocket.stages.length) {
-      activeStageIndex += 1;
-      const nextStage = rocket.stages[activeStageIndex];
-      remainingFuel = nextStage.fuelMass;
-      totalMass -= currentStage.dryMass;
-      phase = ('staging_' + activeStageIndex + '_' + (activeStageIndex + 1)) as any;
-      statusMessage = 'MECO! Stage ' + activeStageIndex + ' separation. Stage ' + (activeStageIndex + 1) + ' ignition.';
-    } else {
+  if (engineCutoff) {
+    accelerationG = dragPerMass(altitude, velocityEarthRelative, diameter, totalMass) / ATMOSPHERE.standardGravity;
+    if (hitSurface) {
+      phase = 'abort';
+      statusMessage = 'Coast ended at Earth’s surface.';
+    } else if (isOrbitAchieved) {
       phase = 'parking_orbit';
-      statusMessage = 'SECO: Main engine cutoff. Parking orbit reached.';
+      statusMessage = 'SECO: Engine cutoff. Coasting in a bound orbit.';
+    } else {
+      phase = 'coast';
+      statusMessage = specificEnergy >= 0
+        ? 'SECO: Engine cutoff. Unbound coast.'
+        : 'SECO: Engine cutoff. Suborbital coast.';
     }
+  } else if (remainingFuel <= 0.1) {
+    activeStageIndex += 1;
+    const nextStage = rocket.stages[activeStageIndex];
+    remainingFuel = nextStage.fuelMass;
+    totalMass -= currentStage!.dryMass;
+    phase = activeStageIndex === 1 ? 'staging_1_2' : 'staging_2_3';
+    statusMessage = 'MECO! Stage ' + activeStageIndex + ' separation. Stage ' + (activeStageIndex + 1) + ' ignition.';
   }
 
-  const specificEnergy = (inertialSpeed * inertialSpeed) / 2 - EARTH.mu / r;
-  let semiMajorAxis = 0;
-  let apoapsis = altitude;
-  let periapsis = altitude;
-
-  if (specificEnergy < 0) {
-    semiMajorAxis = -EARTH.mu / (2 * specificEnergy);
-    const hOrb = r * (horizontalSpeed + spaceport.equatorialBoostVelocity);
-    const eccentricity = Math.sqrt(Math.max(0, 1 - (hOrb * hOrb) / (EARTH.mu * semiMajorAxis)));
-    apoapsis = semiMajorAxis * (1 + eccentricity) - EARTH.radius;
-    periapsis = semiMajorAxis * (1 - eccentricity) - EARTH.radius;
-  }
-
-  const isOrbitAchieved = periapsis > 140000;
-  const twr = totalMass > 0 ? currentThrust / (totalMass * localGravity) : 0;
-  const flightPathAngle = (velAngleRad * 180) / Math.PI;
-
+  const nominalFuel = rocket.stages[activeStageIndex]?.fuelMass ?? 0;
   return {
     time,
     altitude: Math.max(0, altitude),
@@ -215,15 +250,15 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
     velocityEarthRelative,
     verticalSpeed,
     horizontalSpeed,
-    machNumber: atmo.machNumber,
-    dynamicPressure: atmo.dynamicPressure,
+    machNumber: currentAtmosphere.machNumber,
+    dynamicPressure: currentAtmosphere.dynamicPressure,
     maxQ,
     accelerationG,
     totalMass,
     remainingFuel,
-    stageFuelFraction,
+    stageFuelFraction: nominalFuel > 0 ? Math.max(0, remainingFuel / nominalFuel) : 0,
     activeStageIndex,
-    thrust: currentThrust,
+    thrust,
     twr,
     pitchAngle,
     flightPathAngle,
@@ -231,7 +266,7 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
     periapsis,
     orbitalEnergy: specificEnergy,
     deltaVExpended,
-    deltaVRemaining: Math.max(0, calculateTotalRocketDeltaV(rocket) - deltaVExpended),
+    deltaVRemaining: engineCutoff ? 0 : Math.max(0, calculateTotalRocketDeltaV(rocket) - deltaVExpended),
     isOrbitAchieved,
     statusMessage,
     phase,
