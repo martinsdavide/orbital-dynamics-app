@@ -1,5 +1,8 @@
 import * as THREE from 'three';
+import { EARTH } from '../../physics/constants.ts';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
+
+export const LAUNCH_MODEL_SCALE = 0.25;
 
 const SEPARATION_DURATION = 7;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -38,6 +41,8 @@ export class LaunchVehicle {
   private readonly tumble = new THREE.Quaternion();
   private readonly orientation = new THREE.Matrix4();
   private readonly flight = new THREE.Vector3();
+  private readonly radial = new THREE.Vector3();
+  private readonly alongTrack = new THREE.Vector3();
   private readonly forward = new THREE.Vector3();
   private readonly extent = new THREE.Vector3();
   private readonly corner = new THREE.Vector3();
@@ -48,6 +53,7 @@ export class LaunchVehicle {
 
   constructor() {
     this.group.name = 'Launch vehicle';
+    this.stand.scale.setScalar(LAUNCH_MODEL_SCALE);
     this.detached.name = 'Detached launch stages';
     this.group.add(this.exhaustMount);
     const deck = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.008, 0.14), this.trim);
@@ -108,7 +114,7 @@ export class LaunchVehicle {
     const pairedBoosters = rocket.id === 'falcon_heavy' || rocket.id === 'sls_block1';
     const inlineStages = pairedBoosters ? rocket.stages.slice(1) : rocket.stages;
     const stackHeight = inlineStages.reduce((height, stage) => height + stage.height, 0);
-    const scale = 0.23 / Math.max(rocket.height, stackHeight * 1.12);
+    const scale = 0.23 * LAUNCH_MODEL_SCALE / Math.max(rocket.height, stackHeight * 1.12);
     let base = 0;
 
     for (const [stageIndex, stage] of rocket.stages.entries()) {
@@ -149,19 +155,20 @@ export class LaunchVehicle {
     this.rocket = rocket;
   }
 
-  update(rocket: RocketPreset, telemetry: RocketTelemetry, pad: THREE.Vector3, up: THREE.Vector3, east: THREE.Vector3) {
+  update(rocket: RocketPreset, telemetry: RocketTelemetry, pad: THREE.Vector3, up: THREE.Vector3, east: THREE.Vector3, earthRadius: number) {
     const reset = this.rocket !== rocket || telemetry.phase === 'pad' || telemetry.time < this.lastTime;
     if (this.rocket !== rocket) this.build(rocket);
 
+    const downrange = telemetry.downrangeDistance / EARTH.radius;
+    const radial = this.radial.copy(up).multiplyScalar(Math.cos(downrange)).addScaledVector(east, Math.sin(downrange));
+    const alongTrack = this.alongTrack.copy(east).multiplyScalar(Math.cos(downrange)).addScaledVector(up, -Math.sin(downrange));
     const pitch = THREE.MathUtils.degToRad(telemetry.pitchAngle);
-    const flight = this.flight.copy(up).multiplyScalar(Math.sin(pitch)).addScaledVector(east, Math.cos(pitch));
+    const flight = this.flight.copy(radial).multiplyScalar(Math.sin(pitch)).addScaledVector(alongTrack, Math.cos(pitch));
     const lateral = this.lateral.crossVectors(up, east).normalize();
-    // Align the booster axis across the flight plane so both boosters are visible.
     this.group.quaternion.setFromRotationMatrix(this.orientation.makeBasis(lateral, flight, this.forward.crossVectors(lateral, flight)));
-    this.group.position.copy(pad)
-      .addScaledVector(up, 0.009 + telemetry.altitude * 0.00004)
-      .addScaledVector(east, telemetry.downrangeDistance * 0.00002);
-    this.stand.position.copy(pad).addScaledVector(up, 0.001);
+    this.group.position.copy(pad).addScaledVector(up, -earthRadius)
+      .addScaledVector(radial, earthRadius * (1 + telemetry.altitude / EARTH.radius) + 0.009 * LAUNCH_MODEL_SCALE);
+    this.stand.position.copy(pad).addScaledVector(up, 0.001 * LAUNCH_MODEL_SCALE);
     this.stand.quaternion.setFromRotationMatrix(this.orientation.makeBasis(lateral, up, east));
 
     this.bounds.makeEmpty();
@@ -187,8 +194,8 @@ export class LaunchVehicle {
         this.center.copy(center).applyQuaternion(this.group.quaternion).add(this.group.position);
         this.expandBounds(section, this.group.quaternion, 1);
       } else {
-        model.position.copy(center).addScaledVector(UP, -age * (side ? 0.018 : 0.047));
-        model.position.x += age * (side ? side * 0.055 : 0.018);
+        model.position.copy(center).addScaledVector(UP, -age * LAUNCH_MODEL_SCALE * (side ? 0.018 : 0.047));
+        model.position.x += age * LAUNCH_MODEL_SCALE * (side ? side * 0.055 : 0.018);
         model.position.applyQuaternion(separationRotation).add(this.group.position);
         this.tumble.setFromAxisAngle(TUMBLE_AXIS, age * (side < 0 ? -0.16 : 0.16));
         model.quaternion.copy(separationRotation).multiply(this.tumble);
@@ -215,12 +222,12 @@ export class LaunchVehicle {
     this.framingRadius = this.bounds.getSize(this.center).length() * 0.5;
 
     const climb = THREE.MathUtils.smoothstep(telemetry.altitude, 100, 2500);
-    this.cameraDirection.copy(east).multiplyScalar(-0.65)
+    this.cameraDirection.copy(alongTrack).multiplyScalar(-0.65)
       .addScaledVector(lateral, 0.83 * (1 - climb) + 0.53 * climb)
-      .addScaledVector(up, 0.25 + 0.32 * climb)
+      .addScaledVector(radial, 0.25 + 0.32 * climb)
       .normalize();
     // Keep a stable horizon at liftoff and a stable side view as the rocket pitches.
-    this.cameraUp.copy(up);
+    this.cameraUp.copy(radial);
   }
 
   private expandBounds(section: Section, rotation: THREE.Quaternion, weight: number) {

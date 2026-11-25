@@ -121,7 +121,12 @@ export const Header: React.FC<HeaderProps> = ({
             )}
             <optgroup label="Mission Views" className="bg-gray-900 font-semibold text-gray-400">
               <option value="spaceport" className="bg-gray-900 text-gray-200">Launchpad Cam</option>
-              {appMode === 'launch' && <option value="rocket_closeup" className="bg-gray-900">Rocket Close-up</option>}
+              {appMode === 'launch' && (
+                <>
+                  <option value="rocket_closeup" className="bg-gray-900">Rocket Close-up</option>
+                  <option value="launch_overview" className="bg-gray-900">Launch Overview</option>
+                </>
+              )}
               <option value="rocket" className="bg-gray-900 text-gray-200">Chase Rocket</option>
               <option value="earthrise" className="bg-gray-900 text-gray-200">Moon Earthrise</option>
               <option value="infographic" className="bg-gray-900 text-gray-200">Artemis / Infographic View</option>

@@ -219,6 +219,11 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
         )}
       </div>
 
+      <div className="space-y-1 text-xs text-gray-300">
+        <p className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-3 bg-amber-300" />Rocket trail</p>
+        <p className="flex items-center gap-2"><span aria-hidden="true" className="h-0.5 w-3 bg-sky-400" />ISS reference orbit · 420 km · 51.6°</p>
+      </div>
+
       <div className="pt-2 border-t border-gray-800/80">
         {isPad ? (
           <button
