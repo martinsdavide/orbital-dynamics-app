@@ -4,6 +4,7 @@ import earthSurfaceUrl from '../../assets/earth-surface.jpg';
 import ganymedeSurfaceUrl from '../../assets/ganymede-surface.webp';
 import { LAUNCH_MODEL_SCALE, LaunchVehicle } from './LaunchVehicle';
 import { LaunchPaths } from './LaunchPaths';
+import { createAsteroidBelt } from './AsteroidBelt';
 import { ViewportBillboard } from './ViewportBillboard';
 import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey } from '../../types/celestial';
 import { calculatePlanetaryMoonPosition, PLANETARY_MOONS, type PlanetaryMoonKey } from '../../physics/planetaryMoons.ts';
@@ -122,12 +123,17 @@ const PLANET_BADGE_HEIGHT = 28;
 const LAUNCHPAD_CAMERA_DISTANCE = 0.22;
 const LAUNCHPAD_MIN_CAMERA_DISTANCE = 0.055;
 
+function getAsteroidBeltCameraRadius(mode: ScaleMode, aspect: number) {
+  return (mode === 'true' ? getScalingConfig(mode).sunEarthDistance * 10.8 : 1800) / Math.min(1, aspect);
+}
+
 const MAX_TRAIL_POINTS = 4000;
 
 export type CameraPreset =
   | PlanetaryMoonKey
   | PlanetKey
   | 'free'
+  | 'asteroid_belt'
   | 'moon'
   | 'sun'
   | 'rocket'
@@ -159,6 +165,7 @@ interface ThreeViewportProps {
   showEarthUmbraShadow: boolean;
   showGeoLeoBelts: boolean;
   showLineOfNodes: boolean;
+  showAsteroidBelt: boolean;
   showPlanetaryOrbits?: boolean;
   showPlanetLabels?: boolean;
   selectedSpaceport: Spaceport;
@@ -186,6 +193,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     showEarthUmbraShadow,
     showGeoLeoBelts,
     showLineOfNodes,
+    showAsteroidBelt,
     showPlanetaryOrbits = true,
     showPlanetLabels = true,
     selectedSpaceport,
@@ -197,6 +205,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   } = props;
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const asteroidBeltRef = useRef<ReturnType<typeof createAsteroidBelt> | null>(null);
+  const beltOverviewRef = useRef<ScaleMode | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
@@ -308,6 +318,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         if (cameraPreset === 'earth') defaultRadius = scales.earthCameraRadius;
         else if (cameraPreset === 'moon') defaultRadius = scales.moonCameraRadius;
         else if (cameraPreset === 'sun') defaultRadius = scales.sunCameraRadius;
+        else if (cameraPreset === 'asteroid_belt') {
+          defaultRadius = getAsteroidBeltCameraRadius(scaleMode, cameraRef.current?.aspect ?? 1);
+        }
         else if (cameraPreset === 'spaceport') defaultRadius = appMode === 'launch' ? LAUNCHPAD_CAMERA_DISTANCE : scales.earthCameraRadius * 0.55;
         else if (cameraPreset === 'launch_overview' && launchPathsRef.current) defaultRadius = launchPathsRef.current.overviewRadius * 2.9;
         else if (cameraPreset === 'rocket') defaultRadius = appMode === 'launch' ? 1.2 : 18;
@@ -396,6 +409,11 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     });
     const starfield = new THREE.Points(starGeo, starMat);
     scene.add(starfield);
+
+    const ceres = DWARF_PLANET_CONFIGS.find(body => body.key === 'ceres')!;
+    const asteroidBelt = createAsteroidBelt(renderer.getPixelRatio(), ceres.semiMajorAxis / EARTH.semiMajorAxis, ceres.visualDistance);
+    scene.add(asteroidBelt);
+    asteroidBeltRef.current = asteroidBelt;
 
     // Dynamic Lighting
     const ambientLight = new THREE.AmbientLight(0x334155, 1.2);
@@ -1172,6 +1190,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       pinMat.dispose();
       ringGeo.dispose();
       ringMat.dispose();
+      asteroidBelt.geometry.dispose();
+      asteroidBelt.material.dispose();
       launchPaths.dispose();
       launchVehicle.dispose();
       particleGeo.dispose();
@@ -1349,6 +1369,16 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     const earthHeliocentric = projectPlanet(ephemeris.earth.position, EARTH_ORBIT, scaleMode, sunDist);
     const sunWorldPos = getSolarSystemOffset(referenceFrame, earthHeliocentric, moonRelativeToEarth);
+    const asteroidBelt = asteroidBeltRef.current;
+    if (asteroidBelt) {
+      asteroidBelt.visible = appMode === 'system' && showAsteroidBelt;
+      if (asteroidBelt.visible) {
+        asteroidBelt.position.copy(sunWorldPos);
+        asteroidBelt.material.uniforms.elapsedDays.value = ephemeris.timeSeconds / 86400;
+        asteroidBelt.material.uniforms.sceneUnitsPerAu.value = sunDist;
+        asteroidBelt.material.uniforms.visualMode.value = scaleMode === 'visual';
+      }
+    }
     const currentEarthWorldPos = earthHeliocentric.clone().add(sunWorldPos);
     const currentMoonWorldPos = currentEarthWorldPos.clone().add(moonRelativeToEarth);
 
@@ -1777,7 +1807,16 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     const focusedMoon = moonRenderNodesRef.current.get(cameraPreset);
     if (cameraPreset !== 'spaceport') spaceportCameraTargetRef.current = null;
-    if (cameraPreset === 'free') {
+    if (cameraPreset !== 'asteroid_belt') beltOverviewRef.current = null;
+    if (cameraPreset === 'asteroid_belt') {
+      cameraTargetRef.current.copy(sunWorldPos);
+      if (beltOverviewRef.current !== scaleMode) {
+        beltOverviewRef.current = scaleMode;
+        const radius = getAsteroidBeltCameraRadius(scaleMode, camera?.aspect ?? 1);
+        cameraSphericalRef.current = { radius, theta: 0.42, phi: 0.52 };
+        targetRadiusRef.current = radius;
+      }
+    } else if (cameraPreset === 'free') {
       cameraTargetRef.current.set(0, 0, 0);
     } else if (cameraPreset === 'earth') {
       cameraTargetRef.current.copy(currentEarthWorldPos);
@@ -1873,6 +1912,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     showGeoLeoBelts,
     showLineOfNodes,
     showPlanetaryOrbits,
+    showAsteroidBelt,
     showPlanetLabels,
     selectedSpaceport,
     activeRocket,

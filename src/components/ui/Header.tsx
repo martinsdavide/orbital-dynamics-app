@@ -113,6 +113,7 @@ export const Header: React.FC<HeaderProps> = ({
               <option value="uranus" className="bg-gray-900 text-gray-200">Focus Uranus</option>
               <option value="neptune" className="bg-gray-900 text-gray-200">Focus Neptune</option>
             </optgroup>
+            {appMode === 'system' && <option value="asteroid_belt" className="bg-gray-900 text-gray-200">Asteroid Belt Overview</option>}
             {appMode === 'system' && (
               <optgroup label="Dwarf Planets" className="bg-gray-900 font-semibold text-gray-400">
                 {DWARF_PLANET_CONFIGS.map(({ key, name }) => (

@@ -29,6 +29,8 @@ interface SystemViewControlsProps {
   onToggleGeoLeoBelts: () => void;
   showLineOfNodes: boolean;
   onToggleLineOfNodes: () => void;
+  showAsteroidBelt: boolean;
+  onToggleAsteroidBelt: () => void;
   showPlanetaryOrbits?: boolean;
   onTogglePlanetaryOrbits?: () => void;
   showPlanetLabels?: boolean;
@@ -65,6 +67,8 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   onToggleGeoLeoBelts,
   showLineOfNodes,
   onToggleLineOfNodes,
+  showAsteroidBelt,
+  onToggleAsteroidBelt,
   showPlanetaryOrbits = true,
   onTogglePlanetaryOrbits,
   showPlanetLabels = true,
@@ -321,6 +325,19 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
             checked={showPlanetLabels}
             onChange={onTogglePlanetLabels}
             className="w-4 h-4 rounded text-cyan-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
+          />
+        </label>
+
+        <label className="flex items-center justify-between cursor-pointer p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
+          <span className="flex items-center gap-2 text-amber-200">
+            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-amber-300" />
+            Main asteroid belt
+          </span>
+          <input
+            type="checkbox"
+            checked={showAsteroidBelt}
+            onChange={onToggleAsteroidBelt}
+            className="h-4 w-4 cursor-pointer accent-amber-400"
           />
         </label>
 

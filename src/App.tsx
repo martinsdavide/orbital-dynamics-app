@@ -66,6 +66,7 @@ export function App() {
   const [showEarthUmbraShadow, setShowEarthUmbraShadow] = useState<boolean>(true);
   const [showGeoLeoBelts, setShowGeoLeoBelts] = useState<boolean>(true);
   const [showLineOfNodes, setShowLineOfNodes] = useState<boolean>(true);
+  const [showAsteroidBelt, setShowAsteroidBelt] = useState(true);
   const [showPlanetaryOrbits, setShowPlanetaryOrbits] = useState<boolean>(true);
   const [showPlanetLabels, setShowPlanetLabels] = useState<boolean>(true);
 
@@ -96,7 +97,7 @@ export function App() {
     let lastTimestamp = performance.now();
 
     const loop = (timestamp: number) => {
-      const realDt = Math.min(0.1, (timestamp - lastTimestamp) / 1000);
+      const realDt = Math.max(0, Math.min(0.1, (timestamp - lastTimestamp) / 1000));
       lastTimestamp = timestamp;
 
       if (isPlaying) {
@@ -115,7 +116,7 @@ export function App() {
       }
 
       if (appMode === 'launch' && isLaunchPlaying && rocketTelemetry.phase !== 'pad' && rocketTelemetry.phase !== 'abort') {
-        const launchDt = Math.max(0, realDt) * launchRate;
+        const launchDt = realDt * launchRate;
         const steps = Math.max(1, Math.ceil(launchDt / 0.1));
         const dt = launchDt / steps;
         setRocketTelemetry(previous => {
@@ -205,6 +206,7 @@ export function App() {
         showEarthUmbraShadow={showEarthUmbraShadow}
         showGeoLeoBelts={showGeoLeoBelts}
         showLineOfNodes={showLineOfNodes}
+        showAsteroidBelt={showAsteroidBelt}
         showPlanetaryOrbits={showPlanetaryOrbits}
         showPlanetLabels={showPlanetLabels}
         selectedSpaceport={selectedSpaceport}
@@ -219,7 +221,10 @@ export function App() {
         appMode={appMode}
         onSelectMode={handleSelectMode}
         cameraPreset={cameraPreset}
-        onSelectCamera={setCameraPreset}
+        onSelectCamera={preset => {
+          if (preset === 'asteroid_belt') setShowAsteroidBelt(true);
+          setCameraPreset(preset);
+        }}
         onOpenInfo={() => setIsInfoOpen(true)}
         onOpenCharts={() => setIsChartsOpen(true)}
         onResetSimulation={handleResetSimulation}
@@ -257,6 +262,8 @@ export function App() {
           onToggleLineOfNodes={() => setShowLineOfNodes(!showLineOfNodes)}
           showPlanetaryOrbits={showPlanetaryOrbits}
           onTogglePlanetaryOrbits={() => setShowPlanetaryOrbits(!showPlanetaryOrbits)}
+          showAsteroidBelt={showAsteroidBelt}
+          onToggleAsteroidBelt={() => setShowAsteroidBelt(value => !value)}
           showPlanetLabels={showPlanetLabels}
           onTogglePlanetLabels={() => setShowPlanetLabels(!showPlanetLabels)}
           ephemeris={ephemeris}
