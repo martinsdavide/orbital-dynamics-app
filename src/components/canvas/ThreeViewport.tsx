@@ -115,6 +115,9 @@ export function getScalingConfig(scaleMode: ScaleMode) {
 const PLANET_BADGE_WIDTH = 112;
 const PLANET_BADGE_HEIGHT = 28;
 
+const LAUNCHPAD_CAMERA_DISTANCE = 0.22;
+const LAUNCHPAD_MIN_CAMERA_DISTANCE = 0.055;
+
 const MAX_TRAIL_POINTS = 4000;
 
 export type CameraPreset =
@@ -274,6 +277,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const prevMousePosRef = useRef({ x: 0, y: 0 });
   const cameraSphericalRef = useRef({ radius: 140, theta: Math.PI / 4, phi: Math.PI / 3 });
   const targetRadiusRef = useRef(140);
+  const launchpadCameraUpRef = useRef<THREE.Vector3 | null>(null);
   const cameraTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
   const prevFrameRef = useRef<ReferenceFrame>(referenceFrame);
   const prevAppModeRef = useRef<ActiveAppMode>(appMode);
@@ -286,7 +290,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           closeupZoomRef.current = Math.max(0.75, closeupZoomRef.current * factor);
           return;
         }
-        targetRadiusRef.current = Math.max(1.5, targetRadiusRef.current * factor);
+        targetRadiusRef.current = Math.max(launchpadCameraUpRef.current ? LAUNCHPAD_MIN_CAMERA_DISTANCE : 1.5, targetRadiusRef.current * factor);
       },
       zoomOut: (factor = 1.4) => {
         if (closeupRef.current) {
@@ -306,7 +310,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         if (cameraPreset === 'earth') defaultRadius = scales.earthCameraRadius;
         else if (cameraPreset === 'moon') defaultRadius = scales.moonCameraRadius;
         else if (cameraPreset === 'sun') defaultRadius = scales.sunCameraRadius;
-        else if (cameraPreset === 'spaceport') defaultRadius = scales.earthCameraRadius * 0.55;
+        else if (cameraPreset === 'spaceport') defaultRadius = appMode === 'launch' ? LAUNCHPAD_CAMERA_DISTANCE : scales.earthCameraRadius * 0.55;
         else if (cameraPreset === 'launch_overview' && launchPathsRef.current) defaultRadius = launchPathsRef.current.overviewRadius * 2.9;
         else if (cameraPreset === 'rocket') defaultRadius = appMode === 'launch' ? 1.2 : 18;
         else if (cameraPreset === 'earthrise') defaultRadius = scales.moonCameraRadius * 0.7;
@@ -1027,7 +1031,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         return;
       }
       targetRadiusRef.current = Math.max(
-        1.5,
+        launchpadCameraUpRef.current ? LAUNCHPAD_MIN_CAMERA_DISTANCE : 1.5,
         Math.min(35000, targetRadiusRef.current * zoomFactor)
       );
     };
@@ -1072,7 +1076,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         camera.up.copy(launchVehicle.cameraUp);
         camera.lookAt(launchVehicle.target);
       } else {
-        camera.up.set(0, 1, 0);
+        if (launchpadCameraUpRef.current) camera.up.copy(launchpadCameraUpRef.current);
+        else camera.up.set(0, 1, 0);
         const diff = targetRadiusRef.current - cameraSphericalRef.current.radius;
         if (Math.abs(diff) > 0.005) {
           cameraSphericalRef.current.radius += diff * 0.15;
@@ -1231,6 +1236,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       orbit.geometry.setFromPoints(samples).computeBoundingSphere();
     }
   }, [scaleMode]);
+
+  useEffect(() => {
+    spaceportCameraTargetRef.current = null;
+  }, [appMode, scaleMode]);
 
   useEffect(() => {
     if (!sceneRef.current) return;
@@ -1502,9 +1511,12 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       closeupZoomRef.current = 1;
     }
     closeupRef.current = closeup;
+    const launchpadCamera = appMode === 'launch' && cameraPreset === 'spaceport';
+    if (!launchpadCamera) launchpadCameraUpRef.current = null;
+    const near = closeup || launchpadCamera ? 0.003 : 0.1;
     const camera = cameraRef.current;
-    if (camera && camera.near !== (closeup ? 0.003 : 0.1)) {
-      camera.near = closeup ? 0.003 : 0.1;
+    if (camera && camera.near !== near) {
+      camera.near = near;
       camera.updateProjectionMatrix();
     }
     launchVehicle?.setVisible(appMode === 'launch');
@@ -1760,14 +1772,21 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       targetRadiusRef.current = scales.sunCameraRadius;
     } else if (cameraPreset === 'spaceport' && launchpadMarkerRef.current) {
       launchpadMarkerRef.current.getWorldPosition(cameraTargetRef.current);
+      const normal = cameraTargetRef.current.clone().sub(currentEarthWorldPos).normalize();
+      if (launchpadCamera) launchpadCameraUpRef.current = normal;
       if (spaceportCameraTargetRef.current !== selectedSpaceport) {
         spaceportCameraTargetRef.current = selectedSpaceport;
-        const direction = cameraTargetRef.current.clone().sub(currentEarthWorldPos).normalize();
-        direction.y += 0.38;
+        const direction = normal.clone();
+        if (launchpadCamera) {
+          const side = new THREE.Vector3(0, 1, 0).cross(direction).normalize();
+          direction.multiplyScalar(0.62).addScaledVector(side, 0.78);
+        } else {
+          direction.y += 0.38;
+        }
         direction.normalize();
         cameraSphericalRef.current.theta = Math.atan2(direction.x, direction.z);
         cameraSphericalRef.current.phi = Math.acos(direction.y);
-        targetRadiusRef.current = scales.earthCameraRadius * 0.55;
+        targetRadiusRef.current = launchpadCamera ? LAUNCHPAD_CAMERA_DISTANCE : scales.earthCameraRadius * 0.55;
         cameraSphericalRef.current.radius = targetRadiusRef.current;
       }
     } else if (launchOverview && launchPaths) {

@@ -23,6 +23,45 @@ import { getEphemerisState } from './physics/orbitalMechanics';
 import { simulateRocketAscentStep, calculateTotalRocketDeltaV } from './physics/rocketDynamics';
 import { solveEarthMoonTrajectory } from './physics/trajectorySolver';
 
+const DEFAULT_LAUNCH_SITE = SPACEPORTS.find(site => site.id === 'spacex_starbase')!;
+const DEFAULT_LAUNCH_ROCKET = ROCKET_PRESETS.find(rocket => rocket.id === 'starship_v3')!;
+
+function createPadTelemetry(rocket: RocketPreset, site: Spaceport): RocketTelemetry {
+  let totalWetMass = rocket.fairingMass;
+  for (const stage of rocket.stages) {
+    totalWetMass += stage.dryMass + stage.fuelMass;
+  }
+  return {
+    time: 0,
+    altitude: site.elevation,
+    downrangeDistance: 0,
+    velocity: site.equatorialBoostVelocity,
+    velocityEarthRelative: 0,
+    verticalSpeed: 0,
+    horizontalSpeed: 0,
+    machNumber: 0,
+    dynamicPressure: 0,
+    maxQ: 0,
+    accelerationG: 1.0,
+    totalMass: totalWetMass,
+    remainingFuel: rocket.stages[0].fuelMass,
+    stageFuelFraction: 1.0,
+    activeStageIndex: 0,
+    thrust: 0,
+    twr: 0,
+    pitchAngle: 90,
+    flightPathAngle: 90,
+    apoapsis: site.elevation,
+    periapsis: -6.371e6,
+    orbitalEnergy: 0,
+    deltaVExpended: 0,
+    deltaVRemaining: calculateTotalRocketDeltaV(rocket),
+    isOrbitAchieved: false,
+    statusMessage: 'Pad clear. Ready for countdown and liftoff.',
+    phase: 'pad',
+  };
+}
+
 export function App() {
   const viewportRef = useRef<ThreeViewportHandle>(null);
 
@@ -68,46 +107,12 @@ export function App() {
   const [showPlanetaryOrbits, setShowPlanetaryOrbits] = useState<boolean>(true);
   const [showPlanetLabels, setShowPlanetLabels] = useState<boolean>(true);
 
-  const [selectedSpaceport, setSelectedSpaceport] = useState<Spaceport>(SPACEPORTS[0]);
-  const [activeRocket, setActiveRocket] = useState<RocketPreset>(ROCKET_PRESETS[0]);
+  const [launchSpaceport, setLaunchSpaceport] = useState(DEFAULT_LAUNCH_SITE);
+  const [transferSpaceport, setTransferSpaceport] = useState(SPACEPORTS[0]);
+  const [activeRocket, setActiveRocket] = useState(DEFAULT_LAUNCH_ROCKET);
+  const selectedSpaceport = appMode === 'launch' ? launchSpaceport : transferSpaceport;
 
-  const [rocketTelemetry, setRocketTelemetry] = useState<RocketTelemetry>(() => {
-    const r = ROCKET_PRESETS[0];
-    const sp = SPACEPORTS[0];
-    let totalWetMass = r.fairingMass;
-    for (const stage of r.stages) {
-      totalWetMass += stage.dryMass + stage.fuelMass;
-    }
-    return {
-      time: 0,
-      altitude: sp.elevation,
-      downrangeDistance: 0,
-      velocity: sp.equatorialBoostVelocity,
-      velocityEarthRelative: 0,
-      verticalSpeed: 0,
-      horizontalSpeed: 0,
-      machNumber: 0,
-      dynamicPressure: 0,
-      maxQ: 0,
-      accelerationG: 1.0,
-      totalMass: totalWetMass,
-      remainingFuel: r.stages[0].fuelMass,
-      stageFuelFraction: 1.0,
-      activeStageIndex: 0,
-      thrust: 0,
-      twr: 0,
-      pitchAngle: 90,
-      flightPathAngle: 90,
-      apoapsis: sp.elevation,
-      periapsis: -6.371e6,
-      orbitalEnergy: 0,
-      deltaVExpended: 0,
-      deltaVRemaining: calculateTotalRocketDeltaV(r),
-      isOrbitAchieved: false,
-      statusMessage: 'Pad clear. Ready for countdown and liftoff.',
-      phase: 'pad',
-    };
-  });
+  const [rocketTelemetry, setRocketTelemetry] = useState(() => createPadTelemetry(DEFAULT_LAUNCH_ROCKET, DEFAULT_LAUNCH_SITE));
 
   const [autoGuidance, setAutoGuidance] = useState<boolean>(true);
   const [userThrottle, setUserThrottle] = useState<number>(1.0);
@@ -176,7 +181,7 @@ export function App() {
     } else if (mode === 'launch') {
       setReferenceFrame('geocentric');
       setScaleMode('true');
-      setCameraPreset('rocket_closeup');
+      setCameraPreset('spaceport');
     } else if (mode === 'transfer') {
       setReferenceFrame('geocentric');
       setScaleMode('true');
@@ -186,57 +191,23 @@ export function App() {
   };
 
   const handleLaunch = () => {
-    setRocketTelemetry((prev) => ({
-      ...simulateRocketAscentStep({
-        timeSeconds: 0,
-        dt: 0,
-        rocket: activeRocket,
-        spaceport: selectedSpaceport,
-        telemetry: { ...prev, phase: 'pad', isOrbitAchieved: false },
-        userThrottle,
-        autoGuidance,
-      }),
+    setRocketTelemetry({
+      ...createPadTelemetry(activeRocket, launchSpaceport),
       phase: 'boost_stage1',
-      statusMessage: 'Ignition! Liftoff of ' + activeRocket.name + ' from ' + selectedSpaceport.name,
-    }));
+      statusMessage: 'Ignition! Liftoff of ' + activeRocket.name + ' from ' + launchSpaceport.name,
+    });
     setIsLaunchPlaying(true);
   };
 
   const handleAbort = () => {
-    let totalWetMass = activeRocket.fairingMass;
-    for (const stage of activeRocket.stages) {
-      totalWetMass += stage.dryMass + stage.fuelMass;
-    }
     setRocketTelemetry({
-      time: 0,
-      altitude: selectedSpaceport.elevation,
-      downrangeDistance: 0,
-      velocity: selectedSpaceport.equatorialBoostVelocity,
-      velocityEarthRelative: 0,
-      verticalSpeed: 0,
-      horizontalSpeed: 0,
-      machNumber: 0,
-      dynamicPressure: 0,
-      maxQ: 0,
-      accelerationG: 1.0,
-      totalMass: totalWetMass,
-      remainingFuel: activeRocket.stages[0].fuelMass,
-      stageFuelFraction: 1.0,
-      activeStageIndex: 0,
-      thrust: 0,
-      twr: 0,
-      pitchAngle: 90,
-      flightPathAngle: 90,
-      apoapsis: selectedSpaceport.elevation,
-      periapsis: -6.371e6,
-      orbitalEnergy: 0,
-      deltaVExpended: 0,
-      deltaVRemaining: calculateTotalRocketDeltaV(activeRocket),
-      isOrbitAchieved: false,
+      ...createPadTelemetry(activeRocket, launchSpaceport),
       statusMessage: 'Launchpad reset. Ready for ignition.',
-      phase: 'pad',
     });
-    if (appMode === 'launch') setCameraPreset('rocket_closeup');
+    if (appMode === 'launch') {
+      if (cameraPreset === 'spaceport') viewportRef.current?.resetZoom();
+      setCameraPreset('spaceport');
+    }
   };
 
   const handleResetSimulation = () => {
@@ -327,9 +298,15 @@ export function App() {
       {appMode === 'launch' && (
         <LaunchViewControls
           selectedSpaceport={selectedSpaceport}
-          onSelectSpaceport={setSelectedSpaceport}
+          onSelectSpaceport={site => {
+            setLaunchSpaceport(site);
+            setRocketTelemetry(createPadTelemetry(activeRocket, site));
+          }}
           activeRocket={activeRocket}
-          onSelectRocket={setActiveRocket}
+          onSelectRocket={rocket => {
+            setActiveRocket(rocket);
+            setRocketTelemetry(createPadTelemetry(rocket, launchSpaceport));
+          }}
           rocketTelemetry={rocketTelemetry}
           onLaunch={handleLaunch}
           onAbort={handleAbort}
@@ -352,7 +329,7 @@ export function App() {
         <>
           <TrajectoryPlanner
             selectedSpaceport={selectedSpaceport}
-            onSelectSpaceport={setSelectedSpaceport}
+            onSelectSpaceport={setTransferSpaceport}
             activeTrajectory={activeTrajectory}
             onUpdateTrajectory={setActiveTrajectory}
             trajectoryProgress={trajectoryProgress}
