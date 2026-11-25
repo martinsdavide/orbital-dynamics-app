@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
 import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
-import { SPACEPORTS } from '../../data/spaceports';
+import { SPACEPORTS, SPACEX_SPACEPORTS } from '../../data/spaceports';
 import { ROCKET_PRESETS } from '../../data/rockets';
 import { Rocket, MapPin, Gauge, Flame, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
+
+function renderSpaceportOption(port: Spaceport) {
+  const latitude = `${Math.abs(port.latitude).toFixed(1)}°${port.latitude >= 0 ? 'N' : 'S'}`;
+  return <option key={port.id} value={port.id}>{port.flag} {port.shortName} ({latitude})</option>;
+}
 
 interface LaunchViewControlsProps {
   selectedSpaceport: Spaceport;
@@ -95,6 +100,7 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
           <span>Launch Complex Spaceport</span>
         </label>
         <select
+          aria-label="Launch Complex Spaceport"
           value={selectedSpaceport.id}
           onChange={(e) => {
             const port = SPACEPORTS.find((p) => p.id === e.target.value);
@@ -103,11 +109,8 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
           disabled={!isPad}
           className="w-full bg-gray-900/90 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-200 focus:outline-none focus:border-cyan-500 cursor-pointer disabled:opacity-50"
         >
-          {SPACEPORTS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.flag} {p.shortName} ({p.latitude > 0 ? `${p.latitude.toFixed(1)}°N` : `${Math.abs(p.latitude).toFixed(1)}°S`})
-            </option>
-          ))}
+          {SPACEPORTS.filter(port => port.operator !== 'SpaceX').map(renderSpaceportOption)}
+          <optgroup label="SpaceX">{SPACEX_SPACEPORTS.map(renderSpaceportOption)}</optgroup>
         </select>
         <div className="p-2 rounded-xl bg-gray-900/60 border border-gray-800/60 text-[11px] font-mono text-gray-300 space-y-1">
           <div className="flex justify-between">

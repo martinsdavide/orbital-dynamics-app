@@ -7,6 +7,71 @@ function getRotationalBoost(latDeg: number): number {
   return Math.round(omega * EARTH.radius * Math.cos(latRad));
 }
 
+export const SPACEX_SPACEPORTS: Spaceport[] = [
+  {
+    id: 'spacex_starbase',
+    name: 'Starbase Orbital Launch Site (Boca Chica)',
+    shortName: 'Starbase, Texas',
+    latitude: 25.9971,
+    longitude: -97.1559,
+    elevation: 3,
+    minLaunchAzimuth: 75,
+    maxLaunchAzimuth: 115,
+    minOrbitalInclination: 26.0,
+    description: 'SpaceX’s Starship development and launch site on the Gulf Coast of South Texas.',
+    historicMissions: ['Starship integrated flight tests'],
+    advantages: ['Coastal site with an open-water departure corridor'],
+  },
+  {
+    id: 'spacex_lc39a',
+    name: 'Kennedy Space Center Launch Complex 39A',
+    shortName: 'Kennedy LC-39A, Florida',
+    latitude: 28.6084,
+    longitude: -80.6043,
+    elevation: 5,
+    minLaunchAzimuth: 35,
+    maxLaunchAzimuth: 120,
+    minOrbitalInclination: 28.61,
+    description: 'NASA’s historic Pad 39A, operated by SpaceX for Falcon 9 and Falcon Heavy launches.',
+    historicMissions: ['Crew Dragon Demo-2', 'Falcon Heavy demonstration flight'],
+    advantages: ['Supports crewed ISS missions and Falcon Heavy launches'],
+  },
+  {
+    id: 'spacex_slc40',
+    name: 'Cape Canaveral Space Launch Complex 40',
+    shortName: 'Cape Canaveral SLC-40, Florida',
+    latitude: 28.5619,
+    longitude: -80.5774,
+    elevation: 4,
+    minLaunchAzimuth: 35,
+    maxLaunchAzimuth: 120,
+    minOrbitalInclination: 28.56,
+    description: 'A SpaceX Falcon 9 pad at Cape Canaveral Space Force Station.',
+    historicMissions: ['Falcon 9 maiden flight', 'CRS-1'],
+    advantages: ['Supports cargo missions to the ISS and commercial satellite launches'],
+  },
+  {
+    id: 'spacex_slc4e',
+    name: 'Vandenberg Space Launch Complex 4 East',
+    shortName: 'Vandenberg SLC-4E, California',
+    latitude: 34.632,
+    longitude: -120.611,
+    elevation: 110,
+    minLaunchAzimuth: 140,
+    maxLaunchAzimuth: 220,
+    minOrbitalInclination: 63.4,
+    description: 'SpaceX’s Falcon 9 launch pad on the California coast.',
+    historicMissions: ['DART', 'Iridium NEXT'],
+    advantages: ['Pacific departure corridor for polar and sun-synchronous missions'],
+  },
+].map(port => ({
+  ...port,
+  country: 'United States',
+  operator: 'SpaceX',
+  flag: '🇺🇸',
+  equatorialBoostVelocity: getRotationalBoost(port.latitude),
+}));
+
 export const SPACEPORTS: Spaceport[] = [
   {
     id: 'kourou',
@@ -161,5 +226,6 @@ export const SPACEPORTS: Spaceport[] = [
       'Ideal for direct Lunar Polar Orbit (LPO) injection',
       'Heavy-lift pad conversions (SLC-4E, SLC-6)',
     ],
-  }
+  },
+  ...SPACEX_SPACEPORTS,
 ];

@@ -235,6 +235,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const launchTimeRef = useRef(0);
   const exhaustParticlesRef = useRef<THREE.Points | null>(null);
   const launchpadMarkerRef = useRef<THREE.Group | null>(null);
+  const spaceportCameraTargetRef = useRef<Spaceport | null>(null);
   const launchPathsRef = useRef<LaunchPaths | null>(null);
   const launchOverviewRef = useRef(false);
   const launchEpochRef = useRef(0);
@@ -1049,13 +1050,15 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     window.addEventListener('mouseup', onMouseUp);
     dom.addEventListener('wheel', onWheel, { passive: false });
 
+    let viewportHeight = 1;
     const handleResize = () => {
       if (!mountRef.current || !rendererRef.current || !cameraRef.current) return;
       const w = mountRef.current.clientWidth || window.innerWidth || 800;
       const h = mountRef.current.clientHeight || window.innerHeight || 600;
+      viewportHeight = h;
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(w, h, false);
+      rendererRef.current.setSize(w, h);
     };
 
     const resizeObserver = new ResizeObserver(() => {
@@ -1068,6 +1071,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     let animId: number;
     let lastExhaustTime = 0;
+    const viewSpacePin = new THREE.Vector3();
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
@@ -1096,6 +1100,15 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         camera.position.y = target.y + radius * Math.cos(phi);
         camera.position.z = target.z + radius * Math.sin(phi) * Math.cos(theta);
         camera.lookAt(target);
+      }
+
+      if (launchpadGroup.visible) {
+        camera.updateMatrixWorld();
+        const depth = -launchpadGroup.getWorldPosition(viewSpacePin).applyMatrix4(camera.matrixWorldInverse).z;
+        const worldPerPixel = 2 * Math.max(depth, camera.near) / (camera.projectionMatrix.elements[5] * viewportHeight);
+        // This group inherits Earth's scale. Keep the 2.4-unit ring near 28 screen pixels.
+        const localScale = 28 * worldPerPixel / (2.4 * earthMesh.scale.x);
+        launchpadGroup.scale.setScalar(Math.min(0.42, localScale));
       }
 
       if (exhaustParticles.visible && launchTimeRef.current !== lastExhaustTime) {
@@ -1140,6 +1153,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       atmoMat.dispose();
       axisGeo.dispose();
       axisMat.dispose();
+      pinGeo.dispose();
+      pinMat.dispose();
+      ringGeo.dispose();
+      ringMat.dispose();
       launchPaths.dispose();
       launchVehicle.dispose();
       particleGeo.dispose();
@@ -1184,8 +1201,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     const y = r * Math.sin(latRad);
     const z = -r * Math.cos(latRad) * Math.sin(lonRad);
 
-    launchpadMarkerRef.current.position.set(x, y, z);
-    launchpadMarkerRef.current.lookAt(x * 2, y * 2, z * 2);
+    const marker = launchpadMarkerRef.current;
+    marker.position.set(x, y, z);
+    marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), marker.position.clone().normalize());
   }, [selectedSpaceport]);
 
   useEffect(() => {
@@ -1745,6 +1763,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     }
 
     const focusedMoon = moonRenderNodesRef.current.get(cameraPreset);
+    if (cameraPreset !== 'spaceport') spaceportCameraTargetRef.current = null;
     if (cameraPreset === 'free') {
       cameraTargetRef.current.set(0, 0, 0);
     } else if (cameraPreset === 'earth') {
@@ -1761,8 +1780,16 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       targetRadiusRef.current = scales.sunCameraRadius;
     } else if (cameraPreset === 'spaceport' && launchpadMarkerRef.current) {
       launchpadMarkerRef.current.getWorldPosition(cameraTargetRef.current);
-      cameraSphericalRef.current.radius = scales.earthCameraRadius * 0.55;
-      targetRadiusRef.current = scales.earthCameraRadius * 0.55;
+      if (spaceportCameraTargetRef.current !== selectedSpaceport) {
+        spaceportCameraTargetRef.current = selectedSpaceport;
+        const direction = cameraTargetRef.current.clone().sub(currentEarthWorldPos).normalize();
+        direction.y += 0.38;
+        direction.normalize();
+        cameraSphericalRef.current.theta = Math.atan2(direction.x, direction.z);
+        cameraSphericalRef.current.phi = Math.acos(direction.y);
+        targetRadiusRef.current = scales.earthCameraRadius * 0.55;
+        cameraSphericalRef.current.radius = targetRadiusRef.current;
+      }
     } else if (launchOverview && launchPaths) {
       cameraTargetRef.current.copy(currentEarthWorldPos);
       const aspect = camera?.aspect ?? 1;
