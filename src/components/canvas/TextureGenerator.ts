@@ -677,6 +677,75 @@ export function createPlutoTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+// Stylized Ceres with dark regolith, subdued crater rims, and Occator's bright salt deposits.
+export function createCeresTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const { width, height } = canvas;
+  const ctx = canvas.getContext('2d')!;
+  const surface = ctx.createImageData(width, height);
+  const longitudeCos = Array.from({ length: width }, (_, x) => Math.cos(x / width * 2 * Math.PI));
+  const longitudeSin = Array.from({ length: width }, (_, x) => Math.sin(x / width * 2 * Math.PI));
+  for (let row = 0; row < height; row++) {
+    const latitude = Math.PI * (0.5 - row / height);
+    const y = Math.sin(latitude);
+    const latitudeRadius = Math.cos(latitude);
+    for (let col = 0; col < width; col++) {
+      const x = latitudeRadius * longitudeCos[col];
+      const z = latitudeRadius * longitudeSin[col];
+      const shade = 10 * Math.sin(11 * x + 6 * y) * Math.cos(7 * z - 5 * y) +
+        6 * Math.sin(28 * z - 32 * y) * Math.cos(26 * x + 17 * y) +
+        5 * Math.sin(91 * x + 113 * y + 81 * z);
+      const index = (row * width + col) * 4;
+      surface.data[index] = 102 + shade;
+      surface.data[index + 1] = 99 + shade;
+      surface.data[index + 2] = 94 + shade;
+      surface.data[index + 3] = 255;
+    }
+  }
+  ctx.putImageData(surface, 0, 0);
+
+  const drawCrater = (x: number, y: number, radius: number, depth: number) => {
+    for (const wrap of [-width, 0, width]) {
+      const centerX = x + wrap;
+      const gradient = ctx.createRadialGradient(centerX - radius * 0.16, y - radius * 0.13, 0, centerX, y, radius);
+      gradient.addColorStop(0, `rgba(45, 39, 34, ${depth})`);
+      gradient.addColorStop(0.72, `rgba(73, 66, 58, ${depth})`);
+      gradient.addColorStop(0.88, 'rgba(173, 165, 149, 0.43)');
+      gradient.addColorStop(1, 'rgba(173, 165, 149, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(centerX - radius, y - radius, radius * 2, radius * 2);
+    }
+  };
+
+  let seed = 22259;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  for (let i = 0; i < 205; i++) {
+    drawCrater(random() * width, (0.04 + 0.92 * random()) * height, 2 + 31 * random() ** 4, 0.15 + 0.32 * random());
+  }
+
+  const occatorX = width * (0.5 - 121 / 360);
+  const occatorY = height * (0.5 - 20 / 180);
+  drawCrater(occatorX, occatorY, 17, 0.6);
+  for (const [x, y, radius] of [[0, 0, 4.2], [6, 2, 2.6], [9, 0.5, 1.6], [5, 4, 1.1]]) {
+    const deposit = ctx.createRadialGradient(occatorX + x, occatorY + y, 0, occatorX + x, occatorY + y, radius);
+    deposit.addColorStop(0, '#fff5df');
+    deposit.addColorStop(0.65, 'rgba(226, 215, 193, 0.88)');
+    deposit.addColorStop(1, 'rgba(226, 215, 193, 0)');
+    ctx.fillStyle = deposit;
+    ctx.fillRect(occatorX + x - radius, occatorY + y - radius, 2 * radius, 2 * radius);
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  return texture;
+}
+
 // Procedural 3D Billboard Planet Label Sprite
 export function createPlanetLabelTexture(name: string, colorHex: string): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');

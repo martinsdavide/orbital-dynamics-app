@@ -33,7 +33,8 @@ export type PlanetKey =
   | 'saturn'
   | 'uranus'
   | 'neptune'
-  | 'pluto';
+  | 'pluto'
+  | 'ceres';
 
 export interface PlanetState extends CelestialBodyState {
   key: PlanetKey;

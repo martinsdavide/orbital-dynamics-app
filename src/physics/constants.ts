@@ -1,3 +1,5 @@
+import type { PlanetKey } from '../types/celestial.ts';
+
 // Fundamental Astrodynamics & Planetary Constants
 
 export const G = 6.67430e-11; // m^3 kg^-1 s^-2
@@ -55,7 +57,7 @@ export const ATMOSPHERE = {
 // Solar System Planets Constants (IAU / NASA Planetary Fact Sheets)
 export interface PlanetConfig {
   name: string;
-  key: 'mercury' | 'venus' | 'earth' | 'mars' | 'jupiter' | 'saturn' | 'uranus' | 'neptune' | 'pluto';
+  key: PlanetKey;
   mass: number; // kg
   radius: number; // m
   semiMajorAxis: number; // m
@@ -232,7 +234,7 @@ export const PLANET_CONFIGS: PlanetConfig[] = [
   },
 ];
 
-// Pluto's fixed orbital elements use the JPL J2000 approximate values.
+// Approximate fixed orbital elements for the dwarf planet visualizations.
 export const DWARF_PLANET_CONFIGS: PlanetConfig[] = [
   {
     name: 'Pluto',
@@ -254,6 +256,27 @@ export const DWARF_PLANET_CONFIGS: PlanetConfig[] = [
     meanAnomalyJ2000Rad: (238.92903833 - 224.06891629) * Math.PI / 180,
     argumentOfPerihelionRad: (224.06891629 - 110.30393684) * Math.PI / 180,
     ascendingNodeRad: 110.30393684 * Math.PI / 180,
+  },
+  {
+    name: 'Ceres',
+    key: 'ceres',
+    mass: 9.384e20,
+    radius: 469_700,
+    semiMajorAxis: 2.7675 * EARTH.semiMajorAxis,
+    eccentricity: 0.0758,
+    orbitalPeriod: 1680.5 * 86400,
+    inclinationToEclipticRad: 10.59 * Math.PI / 180,
+    inclinationDeg: 10.59,
+    rotationPeriod: 9.07417 * 3600,
+    axialTiltRad: 4 * Math.PI / 180,
+    axialTiltDeg: 4,
+    color: 0xb6ac9e,
+    colorHex: '#b6ac9e',
+    visualRadius: 3.4,
+    visualDistance: 527,
+    meanAnomalyJ2000Rad: 96 * Math.PI / 180,
+    argumentOfPerihelionRad: 73.6 * Math.PI / 180,
+    ascendingNodeRad: 80.3 * Math.PI / 180,
   },
 ];
 

@@ -28,6 +28,7 @@ import {
   createUranusTexture,
   createNeptuneTexture,
   createPlutoTexture,
+  createCeresTexture,
   createPlanetLabelTexture,
 } from './TextureGenerator';
 
@@ -125,18 +126,10 @@ const MAX_TRAIL_POINTS = 4000;
 
 export type CameraPreset =
   | PlanetaryMoonKey
+  | PlanetKey
   | 'free'
-  | 'earth'
   | 'moon'
   | 'sun'
-  | 'mercury'
-  | 'venus'
-  | 'mars'
-  | 'jupiter'
-  | 'saturn'
-  | 'uranus'
-  | 'neptune'
-  | 'pluto'
   | 'rocket'
   | 'rocket_closeup'
   | 'launch_overview'
@@ -310,6 +303,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         }
         const scales = getScalingConfig(scaleMode);
         const moon = moonRenderNodesRef.current.get(cameraPreset);
+        const dwarf = DWARF_PLANET_CONFIGS.find(body => body.key === cameraPreset);
         let defaultRadius = 140;
         if (cameraPreset === 'earth') defaultRadius = scales.earthCameraRadius;
         else if (cameraPreset === 'moon') defaultRadius = scales.moonCameraRadius;
@@ -325,7 +319,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         else if (cameraPreset === 'jupiter') defaultRadius = scaleMode === 'true' ? 80 : 55;
         else if (cameraPreset === 'saturn') defaultRadius = scaleMode === 'true' ? 75 : 50;
         else if (cameraPreset === 'uranus') defaultRadius = scaleMode === 'true' ? 35 : 32;
-        else if (cameraPreset === 'pluto') defaultRadius = scaleMode === 'true' ? 5 : DWARF_PLANET_CONFIGS[0].visualRadius * 2.8;
+        else if (dwarf) defaultRadius = scaleMode === 'true' ? 5 : dwarf.visualRadius * 2.8;
         else if (cameraPreset === 'neptune') defaultRadius = scaleMode === 'true' ? 35 : 30;
         else if (moon) defaultRadius = Math.max(2, moon.radius * 5);
         else if (scaleMode === 'true') defaultRadius = scales.earthMoonDistance * 0.75;
@@ -630,6 +624,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         case 'neptune':
           tex = createNeptuneTexture();
           break;
+        case 'ceres':
+          tex = createCeresTexture();
+          break;
         case 'pluto':
           tex = createPlutoTexture();
           break;
@@ -645,7 +642,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         metalness: 0.1,
       });
       const mesh = new THREE.Mesh(geo, mat);
-      if (cfg.key === 'pluto') mesh.rotation.order = 'ZYX';
+      if (cfg.key === 'pluto' || cfg.key === 'ceres') mesh.rotation.order = 'ZYX';
       mesh.rotation.z = cfg.axialTiltRad;
       planetGroup.add(mesh);
 
@@ -1847,16 +1844,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       const radius = Math.max(2, focusedMoon.radius * 5);
       cameraSphericalRef.current.radius = radius;
       targetRadiusRef.current = radius;
-    } else if (
-      cameraPreset === 'mercury' ||
-      cameraPreset === 'venus' ||
-      cameraPreset === 'mars' ||
-      cameraPreset === 'jupiter' ||
-      cameraPreset === 'saturn' ||
-      cameraPreset === 'uranus' ||
-      cameraPreset === 'neptune' ||
-      cameraPreset === 'pluto'
-    ) {
+    } else {
       const pNode = planetRenderNodesRef.current.get(cameraPreset);
       if (pNode) {
         pNode.group.getWorldPosition(cameraTargetRef.current);

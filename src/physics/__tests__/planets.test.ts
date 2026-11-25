@@ -181,3 +181,21 @@ test('Pluto is represented separately with an inclined orbit aligned to its rend
     assert.ok(projectPlanet(quarter.position, config, mode, sunEarthDistance).distanceTo(guide[64]) < 1e-8);
   }
 });
+
+test('Ceres stays in the asteroid belt and follows its inclined guide in both display scales', () => {
+  const config = DWARF_PLANET_CONFIGS.find(body => body.key === 'ceres')!;
+  const initial = getEphemerisState(0);
+  assert.equal(initial.planets.length, 8);
+  assert.deepEqual(new Set(initial.dwarfPlanets.map(body => body.key)), new Set(['pluto', 'ceres']));
+  const ceres = initial.dwarfPlanets.find(body => body.key === 'ceres')!;
+  const mars = initial.planets.find(body => body.key === 'mars')!;
+  const jupiter = initial.planets.find(body => body.key === 'jupiter')!;
+  assert.ok(ceres.semiMajorAxis * (1 - ceres.eccentricity) > mars.semiMajorAxis * (1 + mars.eccentricity));
+  assert.ok(ceres.semiMajorAxis * (1 + ceres.eccentricity) < jupiter.semiMajorAxis * (1 - jupiter.eccentricity));
+  assert.ok(Math.abs(new Vector3().copy(ceres.position).cross(ceres.velocity).normalize().y - Math.cos(10.59 * Math.PI / 180)) < 1e-12);
+  const midpoint = getEphemerisState(ceres.orbitalPeriod / 2).dwarfPlanets.find(body => body.key === 'ceres')!;
+  for (const [mode, distance] of [['visual', 320], ['true', 1200]] as const) {
+    const guide = samplePlanetOrbit(config, mode, distance);
+    assert.ok(projectPlanet(midpoint.position, config, mode, distance).distanceTo(guide[128]) < 1e-8);
+  }
+});

@@ -1,3 +1,4 @@
+import { DWARF_PLANET_CONFIGS } from '../../physics/constants';
 import { PLANETARY_MOONS } from '../../physics/planetaryMoons.ts';
 import React from 'react';
 import { Orbit, Rocket, Compass, Eye, EyeOff, Info, BarChart3, RotateCcw } from 'lucide-react';
@@ -114,7 +115,9 @@ export const Header: React.FC<HeaderProps> = ({
             </optgroup>
             {appMode === 'system' && (
               <optgroup label="Dwarf Planets" className="bg-gray-900 font-semibold text-gray-400">
-                <option value="pluto" className="bg-gray-900 text-gray-200">Focus Pluto</option>
+                {DWARF_PLANET_CONFIGS.map(({ key, name }) => (
+                  <option key={key} value={key} className="bg-gray-900 text-gray-200">Focus {name}</option>
+                ))}
               </optgroup>
             )}
             {appMode === 'system' && (
