@@ -2,6 +2,8 @@ import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import earthSurfaceUrl from '../../assets/earth-surface.jpg';
 import { LAUNCH_MODEL_SCALE, LaunchVehicle } from './LaunchVehicle';
+import { MarsMissionScene } from './MarsMissionScene';
+import type { MarsTransfer } from '../../physics/marsTransfer.ts';
 import { LaunchPaths } from './LaunchPaths';
 import { ViewportBillboard } from './ViewportBillboard';
 import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey } from '../../types/celestial';
@@ -71,7 +73,7 @@ function createMilestoneBadgeTexture(num: number, color: string): THREE.Texture 
   return texture;
 }
 
-export type ActiveAppMode = 'system' | 'launch' | 'transfer';
+export type ActiveAppMode = 'system' | 'launch' | 'transfer' | 'mars';
 
 export function getScalingConfig(scaleMode: ScaleMode) {
   if (scaleMode === 'true') {
@@ -170,6 +172,8 @@ interface ThreeViewportProps {
   activeTrajectory: EarthMoonTrajectory | null;
   cameraPreset: CameraPreset;
   trajectoryProgress: number;
+  marsMission: MarsTransfer | null;
+  marsProgress: number;
 }
 
 export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>((props, ref) => {
@@ -197,9 +201,13 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     activeTrajectory,
     cameraPreset,
     trajectoryProgress,
+    marsMission,
+    marsProgress,
   } = props;
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const marsSceneRef = useRef<MarsMissionScene | null>(null);
+  const previousMissionCameraRef = useRef<{ radius: number; theta: number; phi: number; zoomTarget: number } | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
 
@@ -307,7 +315,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         const scales = getScalingConfig(scaleMode);
         const moon = moonRenderNodesRef.current.get(cameraPreset);
         let defaultRadius = 140;
-        if (cameraPreset === 'earth') defaultRadius = scales.earthCameraRadius;
+        if (appMode === 'mars' && marsSceneRef.current && cameraRef.current) {
+          defaultRadius = marsSceneRef.current.cameraDistance(cameraRef.current);
+        } else if (cameraPreset === 'earth') defaultRadius = scales.earthCameraRadius;
         else if (cameraPreset === 'moon') defaultRadius = scales.moonCameraRadius;
         else if (cameraPreset === 'sun') defaultRadius = scales.sunCameraRadius;
         else if (cameraPreset === 'spaceport') defaultRadius = appMode === 'launch' ? LAUNCHPAD_CAMERA_DISTANCE : scales.earthCameraRadius * 0.55;
@@ -1122,7 +1132,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         pAttr.needsUpdate = true;
       }
 
-      renderer.render(scene, camera);
+      const marsScene = marsSceneRef.current?.scene;
+      renderer.render(marsScene?.visible ? marsScene : scene, camera);
     };
     animate();
 
@@ -1151,6 +1162,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       pinMat.dispose();
       ringGeo.dispose();
       ringMat.dispose();
+      marsSceneRef.current?.dispose();
+      marsSceneRef.current = null;
       launchPaths.dispose();
       launchVehicle.dispose();
       particleGeo.dispose();
@@ -1243,6 +1256,39 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
   useEffect(() => {
     if (!sceneRef.current) return;
+
+    if (appMode === 'mars' && marsMission) {
+      const entering = !marsSceneRef.current?.scene.visible;
+      const missionScene = marsSceneRef.current ??= new MarsMissionScene();
+      missionScene.scene.visible = true;
+      const changed = missionScene.update(marsMission, marsProgress);
+      if (entering && cameraRef.current) {
+        const camera = cameraRef.current;
+        previousMissionCameraRef.current = { ...cameraSphericalRef.current, zoomTarget: targetRadiusRef.current };
+        closeupRef.current = false;
+        launchOverviewRef.current = false;
+        launchpadCameraUpRef.current = null;
+        camera.near = 0.1;
+        camera.updateProjectionMatrix();
+        const radius = missionScene.cameraDistance(camera);
+        cameraTargetRef.current.set(0, 0, 0);
+        cameraSphericalRef.current = { radius, theta: 0.35, phi: 0.64 };
+        targetRadiusRef.current = radius;
+      } else if (changed && cameraRef.current) {
+        targetRadiusRef.current = missionScene.cameraDistance(cameraRef.current);
+      }
+      return;
+    }
+    if (marsSceneRef.current?.scene.visible) {
+      marsSceneRef.current.scene.visible = false;
+      const previousCamera = previousMissionCameraRef.current;
+      if (previousCamera) {
+        const { zoomTarget, ...spherical } = previousCamera;
+        cameraSphericalRef.current = spherical;
+        targetRadiusRef.current = zoomTarget;
+        previousMissionCameraRef.current = null;
+      }
+    }
 
     const scales = getScalingConfig(scaleMode);
     const emDistScale = scales.earthMoonDistance;
@@ -1867,6 +1913,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     activeTrajectory,
     cameraPreset,
     trajectoryProgress,
+    marsMission,
+    marsProgress,
   ]);
 
   return (

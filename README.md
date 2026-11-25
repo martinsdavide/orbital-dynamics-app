@@ -56,6 +56,14 @@
 
 ---
 
+## Earth–Mars transfer prototype
+
+Open **Earth–Mars** and enter UTC departure and arrival dates to calculate a prograde, zero-revolution transfer. Play or scrub from Earth departure to Mars encounter. The planner reports Earth departure C3 and Mars-relative arrival speed. **Orbital insertion** also estimates the impulsive burn into a selected circular Mars orbit.
+
+The prototype uses [JPL approximate planetary elements](https://ssd.jpl.nasa.gov/planets/approx_pos.html) for Earth (Earth–Moon barycenter approximation) and Mars. It uses a Sun-centered two-body coast and evaluates arrival at Mars’s center in that heliocentric model. Local flyby and capture arcs, a return to Earth, and radiation exposure are outside this prototype.
+
+---
+
 ## 🛠️ Tech Stack & Architecture
 
 - **Frontend Framework**: React 19 + TypeScript + Vite

@@ -6,6 +6,7 @@ import { TimeControls } from './components/ui/TimeControls';
 import { SystemViewControls } from './components/ui/SystemViewControls';
 import { LaunchViewControls } from './components/ui/LaunchViewControls';
 import { TrajectoryPlanner } from './components/ui/TrajectoryPlanner';
+import { MarsMissionControls } from './components/ui/MarsMissionControls';
 import { MissionInfographicLegend } from './components/ui/MissionInfographicLegend';
 import { TelemetryHUD } from './components/ui/TelemetryHUD';
 import { ZoomControls } from './components/ui/ZoomControls';
@@ -21,6 +22,7 @@ import { SPACEPORTS } from './data/spaceports';
 import { ROCKET_PRESETS } from './data/rockets';
 import { getEphemerisState } from './physics/orbitalMechanics';
 import { simulateRocketAscentStep, calculateTotalRocketDeltaV } from './physics/rocketDynamics';
+import { DEFAULT_MARS_ARRIVAL, DEFAULT_MARS_DEPARTURE, SECONDS_PER_DAY, solveMarsTransfer, type MarsTransfer } from './physics/marsTransfer.ts';
 import { solveEarthMoonTrajectory } from './physics/trajectorySolver';
 
 const DEFAULT_LAUNCH_SITE = SPACEPORTS.find(site => site.id === 'spacex_starbase')!;
@@ -123,6 +125,25 @@ export function App() {
   );
   const [trajectoryProgress, setTrajectoryProgress] = useState<number>(0.15);
 
+  const [marsMission, setMarsMission] = useState<MarsTransfer | null>(null);
+  const [marsProgress, setMarsProgress] = useState(0);
+  const [marsPlaying, setMarsPlaying] = useState(false);
+  const isMarsPlaying = marsPlaying && marsProgress < 1;
+
+  useEffect(() => {
+    if (appMode !== 'mars' || !marsMission || !isMarsPlaying) return;
+    let frame: number;
+    let lastTime = performance.now();
+    const update = (timestamp: number) => {
+      const elapsed = Math.min(0.1, Math.max(0, (timestamp - lastTime) / 1000));
+      lastTime = timestamp;
+      setMarsProgress(progress => Math.min(1, progress + elapsed * 15 * SECONDS_PER_DAY / marsMission.duration));
+      frame = requestAnimationFrame(update);
+    };
+    frame = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frame);
+  }, [appMode, marsMission, isMarsPlaying]);
+
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
   const [isChartsOpen, setIsChartsOpen] = useState<boolean>(false);
 
@@ -176,6 +197,7 @@ export function App() {
 
   const handleSelectMode = (mode: ActiveAppMode) => {
     setAppMode(mode);
+    if (mode !== 'mars') setMarsPlaying(false);
     if (mode === 'system') {
       setCameraPreset('free');
     } else if (mode === 'launch') {
@@ -187,6 +209,9 @@ export function App() {
       setScaleMode('true');
       setCameraPreset('infographic');
       setTimeWarp(1);
+    } else if (mode === 'mars') {
+      setCameraPreset('free');
+      if (!marsMission) setMarsMission(solveMarsTransfer(DEFAULT_MARS_DEPARTURE, DEFAULT_MARS_ARRIVAL));
     }
   };
 
@@ -210,7 +235,17 @@ export function App() {
     }
   };
 
+  const scrubMars = (progress: number) => {
+    setMarsPlaying(false);
+    setMarsProgress(progress);
+  };
+
   const handleResetSimulation = () => {
+    if (appMode === 'mars') {
+      scrubMars(0);
+      viewportRef.current?.resetZoom();
+      return;
+    }
     setSimTimeSeconds(0);
     setTrajectoryProgress(0.15);
     handleAbort();
@@ -243,6 +278,8 @@ export function App() {
         activeTrajectory={activeTrajectory}
         cameraPreset={cameraPreset}
         trajectoryProgress={trajectoryProgress}
+        marsMission={marsMission}
+        marsProgress={marsProgress}
       />
 
       <Header
@@ -363,7 +400,26 @@ export function App() {
         />
       )}
 
-      {appMode !== 'launch' && (
+      {appMode === 'mars' && marsMission && (
+        <MarsMissionControls
+          mission={marsMission}
+          progress={marsProgress}
+          playing={isMarsPlaying}
+          collapsed={isLeftPanelCollapsed}
+          onCollapse={() => setIsLeftPanelCollapsed(value => !value)}
+          onSolve={mission => {
+            setMarsMission(mission);
+            scrubMars(0);
+          }}
+          onScrub={scrubMars}
+          onTogglePlay={() => {
+            if (marsProgress >= 1) setMarsProgress(0);
+            setMarsPlaying(!isMarsPlaying);
+          }}
+        />
+      )}
+
+      {(appMode === 'system' || appMode === 'transfer') && (
         <TimeControls
           isPlaying={isPlaying}
           onTogglePlay={() => setIsPlaying(!isPlaying)}

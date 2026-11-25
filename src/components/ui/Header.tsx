@@ -42,7 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </div>
           <p className="text-[11px] text-gray-400 font-mono hidden sm:block">
-            Sun-Earth-Moon Dynamics & Rocket Trajectory Engine
+            Solar System & Mission Trajectory Simulator
           </p>
         </div>
       </div>
@@ -86,10 +86,20 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">Earth-Moon Trajectory</span>
           <span className="md:hidden">Transfer</span>
         </button>
+        <button
+          onClick={() => onSelectMode('mars')}
+          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            appMode === 'mars' ? 'bg-amber-500 text-gray-950' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
+          }`}
+        >
+          <Compass className="hidden h-4 w-4 md:block" />
+          <span className="hidden md:inline">Earth–Mars</span>
+          <span className="md:hidden">Mars</span>
+        </button>
       </div>
 
       <div className="flex items-center space-x-2">
-        <div className="flex items-center space-x-1 bg-gray-900/80 border border-gray-800 rounded-lg px-2 py-1 text-xs">
+        {appMode !== 'mars' && <div className="flex items-center space-x-1 bg-gray-900/80 border border-gray-800 rounded-lg px-2 py-1 text-xs">
           <Eye className="w-3.5 h-3.5 text-blue-400" />
           <select
             aria-label="Camera view"
@@ -132,7 +142,7 @@ export const Header: React.FC<HeaderProps> = ({
               <option value="infographic" className="bg-gray-900 text-gray-200">Artemis / Infographic View</option>
             </optgroup>
           </select>
-        </div>
+        </div>}
 
         {appMode === 'launch' && (
           <button
