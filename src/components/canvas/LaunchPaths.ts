@@ -1,13 +1,12 @@
 import * as THREE from 'three';
-import { EARTH } from '../../physics/constants.ts';
+import { EARTH, ISS_ORBIT_ALTITUDE } from '../../physics/constants.ts';
 import type { RocketTelemetry } from '../../types/rocket';
 import { ViewportBillboard } from './ViewportBillboard';
 import { createPlanetLabelTexture } from './TextureGenerator';
 
-const ISS_ALTITUDE = 420_000;
-const ISS_RADIUS_RATIO = 1 + ISS_ALTITUDE / EARTH.radius;
+const ISS_RADIUS_RATIO = 1 + ISS_ORBIT_ALTITUDE / EARTH.radius;
 const ISS_INCLINATION = THREE.MathUtils.degToRad(51.6);
-const ISS_PERIOD = 2 * Math.PI * Math.sqrt(Math.pow(EARTH.radius + ISS_ALTITUDE, 3) / EARTH.mu);
+const ISS_PERIOD = 2 * Math.PI * Math.sqrt(Math.pow(EARTH.radius + ISS_ORBIT_ALTITUDE, 3) / EARTH.mu);
 const TRAIL_CAPACITY = 4096;
 const ORIGIN = new THREE.Vector3();
 const TILT_AXIS = new THREE.Vector3(0, 0, 1);

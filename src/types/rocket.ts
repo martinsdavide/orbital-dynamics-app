@@ -30,7 +30,10 @@ export interface RocketPreset {
   fairingMass: number; // kg
 }
 
+export type OrbitTargetPhase = 'ascent' | 'coast to apoapsis' | 'circularization' | 'target reached' | 'target missed';
+
 export interface RocketTelemetry {
+  orbitTargetPhase?: OrbitTargetPhase;
   time: number; // seconds from launch
   altitude: number; // m
   karmanCrossingTime?: number; // seconds from launch at the first upward 100 km crossing

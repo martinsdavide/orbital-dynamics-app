@@ -77,6 +77,7 @@ export function App() {
   const [rocketTelemetry, setRocketTelemetry] = useState(() => createPadTelemetry(DEFAULT_LAUNCH_ROCKET, DEFAULT_LAUNCH_SITE));
 
   const [autoGuidance, setAutoGuidance] = useState<boolean>(true);
+  const [orbitTargetAltitude, setOrbitTargetAltitude] = useState<number>();
   const [userThrottle, setUserThrottle] = useState<number>(1.0);
   const [manualPitch, setManualPitch] = useState<number>(85);
 
@@ -113,20 +114,27 @@ export function App() {
         }
       }
 
-      if (appMode === 'launch' && isLaunchPlaying && rocketTelemetry.phase !== 'pad') {
-        const launchDt = realDt * launchRate;
-        setRocketTelemetry((prev) =>
-          simulateRocketAscentStep({
-            timeSeconds: prev.time,
-            dt: launchDt,
-            rocket: activeRocket,
-            spaceport: selectedSpaceport,
-            telemetry: prev,
-            userThrottle,
-            autoGuidance,
-            manualPitchOverride: manualPitch,
-          })
-        );
+      if (appMode === 'launch' && isLaunchPlaying && rocketTelemetry.phase !== 'pad' && rocketTelemetry.phase !== 'abort') {
+        const launchDt = Math.max(0, realDt) * launchRate;
+        const steps = Math.max(1, Math.ceil(launchDt / 0.1));
+        const dt = launchDt / steps;
+        setRocketTelemetry(previous => {
+          let telemetry = previous;
+          for (let step = 0; step < steps; step++) {
+            telemetry = simulateRocketAscentStep({
+              timeSeconds: telemetry.time,
+              dt,
+              rocket: activeRocket,
+              spaceport: selectedSpaceport,
+              telemetry,
+              userThrottle,
+              autoGuidance,
+              manualPitchOverride: manualPitch,
+              orbitTargetAltitude,
+            });
+          }
+          return telemetry;
+        });
       }
 
       animFrame = requestAnimationFrame(loop);
@@ -134,7 +142,7 @@ export function App() {
 
     animFrame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrame);
-  }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, rocketTelemetry.phase]);
+  }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, orbitTargetAltitude, rocketTelemetry.phase]);
 
   const handleSelectMode = (mode: ActiveAppMode) => {
     setAppMode(mode);
@@ -277,6 +285,8 @@ export function App() {
           playbackRate={launchRate}
           onChangePlaybackRate={setLaunchRate}
           autoGuidance={autoGuidance}
+          orbitTargetAltitude={orbitTargetAltitude}
+          onOrbitTargetChange={setOrbitTargetAltitude}
           onToggleAutoGuidance={() => setAutoGuidance(!autoGuidance)}
           throttle={userThrottle}
           onChangeThrottle={setUserThrottle}
@@ -320,6 +330,7 @@ export function App() {
       {appMode === 'launch' && (
         <TelemetryHUD
           telemetry={rocketTelemetry}
+          orbitTargetAltitude={orbitTargetAltitude}
           isCollapsed={isRightPanelCollapsed}
           onToggleCollapse={() => setIsRightPanelCollapsed(!isRightPanelCollapsed)}
         />

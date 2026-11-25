@@ -1,3 +1,4 @@
+import { ISS_ORBIT_ALTITUDE } from '../../physics/constants';
 import React, { useState } from 'react';
 import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
@@ -23,6 +24,8 @@ interface LaunchViewControlsProps {
   playbackRate: number;
   onChangePlaybackRate: (rate: number) => void;
   autoGuidance: boolean;
+  orbitTargetAltitude?: number;
+  onOrbitTargetChange: (altitude?: number) => void;
   onToggleAutoGuidance: () => void;
   throttle: number;
   onChangeThrottle: (val: number) => void;
@@ -45,6 +48,8 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
   playbackRate,
   onChangePlaybackRate,
   autoGuidance,
+  orbitTargetAltitude,
+  onOrbitTargetChange,
   onToggleAutoGuidance,
   throttle,
   onChangeThrottle,
@@ -53,6 +58,7 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
   isCollapsed,
   onToggleCollapse,
 }) => {
+  const hasOrbitTarget = orbitTargetAltitude !== undefined;
   const isPad = rocketTelemetry.phase === 'pad';
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
@@ -161,19 +167,38 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
       </div>
 
       <div className="space-y-2 pt-2 border-t border-gray-800/80">
+        <label className="flex items-center justify-between gap-2 text-xs text-gray-300">
+          <span>Flight target</span>
+          <select
+            value={orbitTargetAltitude ?? ''}
+            disabled={!isPad}
+            onChange={event => onOrbitTargetChange(event.target.value ? Number(event.target.value) : undefined)}
+            className="rounded-lg border border-gray-700 bg-gray-900 px-2 py-1 text-gray-200 disabled:opacity-60"
+          >
+            <option value="">Open ascent</option>
+            <option value={300_000}>300 km parking orbit</option>
+            <option value={ISS_ORBIT_ALTITUDE}>ISS altitude · 420 km</option>
+            <option value={600_000}>600 km parking orbit</option>
+          </select>
+        </label>
+        {hasOrbitTarget && (
+          <p className="text-[11px] text-gray-400">Targets a circular orbit at the selected altitude. Matching the ISS orbital plane and rendezvous are separate.</p>
+        )}
+
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-gray-300">Gravity Turn Flight Director</span>
           <button
             onClick={onToggleAutoGuidance}
+            disabled={hasOrbitTarget}
             className={`px-2.5 py-1 rounded-lg text-xs font-mono transition-colors ${
-              autoGuidance ? 'bg-cyan-600 text-white' : 'bg-gray-800 text-gray-400'
+              autoGuidance || hasOrbitTarget ? 'bg-cyan-600 text-white' : 'bg-gray-800 text-gray-400'
             }`}
           >
-            {autoGuidance ? 'AUTO PROGRAM' : 'MANUAL PITCH'}
+            {hasOrbitTarget ? 'ORBIT GUIDANCE' : autoGuidance ? 'AUTO PROGRAM' : 'MANUAL PITCH'}
           </button>
         </div>
 
-        {!autoGuidance && (
+        {!autoGuidance && !hasOrbitTarget && (
           <div className="space-y-1">
             <div className="flex justify-between text-[11px] font-mono text-gray-400">
               <span>Target Pitch Angle:</span>
@@ -192,7 +217,7 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
 
         <div className="space-y-1">
           <div className="flex justify-between text-[11px] font-mono text-gray-400">
-            <span>Main Engine Throttle:</span>
+            <span>{hasOrbitTarget ? 'Throttle limit' : 'Main Engine Throttle'}:</span>
             <span className="text-amber-400 font-bold">{Math.round(throttle * 100)}%</span>
           </div>
           <input
@@ -213,6 +238,8 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
           <select value={playbackRate} onChange={(event) => onChangePlaybackRate(Number(event.target.value))} className="rounded bg-gray-800 px-2 py-1">
             <option value={1}>1×</option>
             <option value={2}>2×</option>
+            <option value={10}>10×</option>
+            <option value={25}>25×</option>
           </select>
         </label>
         {!isPad && (

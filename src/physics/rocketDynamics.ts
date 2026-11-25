@@ -4,9 +4,14 @@ import type { Spaceport } from '../types/spaceport';
 import { getAtmosphericState } from './atmosphere.ts';
 
 export const KARMAN_LINE_ALTITUDE = 100_000;
+const TARGET_APSIS_TOLERANCE = 8_000;
 
 export function calculateEarthEscapeSpeed(altitude: number): number {
   return Math.sqrt(2 * EARTH.mu / (EARTH.radius + altitude));
+}
+
+export function calculateEarthCircularSpeed(altitude: number): number {
+  return Math.sqrt(EARTH.mu / (EARTH.radius + altitude));
 }
 
 export function createPadTelemetry(rocket: RocketPreset, site: Spaceport): RocketTelemetry {
@@ -54,6 +59,7 @@ export interface RocketSimulationStepInput {
   userThrottle: number;
   autoGuidance: boolean;
   manualPitchOverride?: number;
+  orbitTargetAltitude?: number;
 }
 
 function dragPerMass(altitude: number, relativeSpeed: number, diameter: number, mass: number): number {
@@ -62,7 +68,10 @@ function dragPerMass(altitude: number, relativeSpeed: number, diameter: number, 
   return atmosphere.dynamicPressure * atmosphere.dragCoefficient * area / mass;
 }
 
-function coastStep(altitude: number, verticalSpeed: number, tangentialSpeed: number, boost: number, diameter: number, mass: number, dt: number) {
+function polarStep(
+  altitude: number, verticalSpeed: number, tangentialSpeed: number, boost: number,
+  diameter: number, mass: number, dt: number, radialThrust = 0, tangentialThrust = 0,
+) {
   // Inertial polar coordinates. The apparent radial and tangential terms
   // account for the rotating local frame and do not contribute to felt G-load.
   const rates = (height: number, radial: number, tangential: number) => {
@@ -72,8 +81,8 @@ function coastStep(altitude: number, verticalSpeed: number, tangentialSpeed: num
     const drag = dragPerMass(Math.max(0, height), relativeSpeed, diameter, mass);
     const dragFactor = relativeSpeed > 0 ? drag / relativeSpeed : 0;
     return {
-      radial: (tangential ** 2) / radius - EARTH.mu / radius ** 2 - dragFactor * radial,
-      tangential: -radial * tangential / radius - dragFactor * horizontal,
+      radial: radialThrust + (tangential ** 2) / radius - EARTH.mu / radius ** 2 - dragFactor * radial,
+      tangential: tangentialThrust - radial * tangential / radius - dragFactor * horizontal,
       downrange: EARTH.radius * tangential / radius - boost,
     };
   };
@@ -90,7 +99,7 @@ function coastStep(altitude: number, verticalSpeed: number, tangentialSpeed: num
 }
 
 export function simulateRocketAscentStep(input: RocketSimulationStepInput): RocketTelemetry {
-  const { dt, rocket, spaceport, telemetry, userThrottle, autoGuidance, manualPitchOverride } = input;
+  const { dt, rocket, spaceport, telemetry, userThrottle, autoGuidance, manualPitchOverride, orbitTargetAltitude } = input;
 
   if (telemetry.phase === 'abort') return telemetry;
   if (telemetry.phase === 'pad') {
@@ -123,18 +132,43 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
   const currentStage = rocket.stages[activeStageIndex];
   const coasting = phase === 'coast' || phase === 'parking_orbit' || !currentStage ||
     (activeStageIndex === rocket.stages.length - 1 && remainingFuel <= 0.1);
+  let orbitTargetPhase = orbitTargetAltitude === undefined ? undefined :
+    telemetry.orbitTargetPhase ?? 'ascent';
+  if (orbitTargetAltitude !== undefined && orbitTargetPhase === 'ascent' &&
+      telemetry.apoapsis >= orbitTargetAltitude && verticalSpeed > 0 && telemetry.orbitalEnergy < 0) {
+    orbitTargetPhase = 'coast to apoapsis';
+  }
+  if (orbitTargetPhase === 'coast to apoapsis' && verticalSpeed <= 0.5 && orbitTargetAltitude !== undefined) {
+    orbitTargetPhase = Math.abs(altitude - orbitTargetAltitude) < TARGET_APSIS_TOLERANCE
+      ? 'circularization'
+      : 'target missed';
+  }
+  const waitingForApoapsis = orbitTargetPhase === 'coast to apoapsis';
+  const guidanceEnded = orbitTargetPhase === 'target missed' || orbitTargetPhase === 'target reached';
+  const engineDisabled = coasting || guidanceEnded;
   const diameter = (currentStage ?? rocket.stages.at(-1))?.diameter ?? rocket.diameter;
   const boost = spaceport.equatorialBoostVelocity;
   const atmo = getAtmosphericState(altitude, Math.hypot(verticalSpeed, horizontalSpeed));
   time += dt;
 
   const pressureRatio = Math.max(0, Math.min(1, atmo.pressure / ATMOSPHERE.seaLevelPressure));
-  const requestedThrust = !coasting && currentStage
+  const availableThrust = !engineDisabled && currentStage
     ? (currentStage.thrustVacuum - (currentStage.thrustVacuum - currentStage.thrustSeaLevel) * pressureRatio) * userThrottle
     : 0;
   const currentIsp = currentStage
     ? currentStage.ispVacuum - (currentStage.ispVacuum - currentStage.ispSeaLevel) * pressureRatio
     : 0;
+  let requestedThrust = waitingForApoapsis ? 0 : availableThrust;
+  let insertionPitch: number | undefined;
+  if (orbitTargetPhase === 'circularization' && !engineDisabled && dt > 0) {
+    const radius = EARTH.radius + altitude;
+    const tangential = horizontalSpeed + boost;
+    const targetSpeed = calculateEarthCircularSpeed(altitude);
+    const forward = (targetSpeed - tangential) / dt + verticalSpeed * tangential / radius;
+    const radial = -verticalSpeed / Math.max(1, dt) + (targetSpeed ** 2 - tangential ** 2) / radius;
+    requestedThrust = Math.min(availableThrust, Math.hypot(forward, radial) * totalMass);
+    insertionPitch = Math.atan2(radial, forward) * 180 / Math.PI;
+  }
   const requestedFuel = currentIsp > 0 ? requestedThrust * dt / (currentIsp * ATMOSPHERE.standardGravity) : 0;
   const fuelBurned = Math.min(remainingFuel, requestedFuel);
   const burnThrust = requestedFuel > 0 ? requestedThrust * fuelBurned / requestedFuel : 0;
@@ -146,7 +180,7 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
     deltaVExpended += dV;
   }
 
-  if (!coasting && autoGuidance) {
+  if (!engineDisabled && (autoGuidance || orbitTargetAltitude !== undefined)) {
     if (altitude < 1200) {
       pitchAngle = 90;
     } else if (altitude < 10000) {
@@ -160,17 +194,32 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
     } else {
       pitchAngle = 0;
     }
-  } else if (!coasting && manualPitchOverride !== undefined) {
+  } else if (!engineDisabled && manualPitchOverride !== undefined) {
     pitchAngle = manualPitchOverride;
   }
 
+  if (orbitTargetPhase === 'ascent' && altitude >= 60_000) {
+    pitchAngle = Math.max(pitchAngle, 12);
+  }
+  if (insertionPitch !== undefined) pitchAngle = insertionPitch;
+
   let accelerationG = 0;
-  if (coasting) {
-    const coast = coastStep(altitude, verticalSpeed, horizontalSpeed + boost, boost, diameter, totalMass, dt);
-    altitude = coast.altitude;
-    verticalSpeed = coast.verticalSpeed;
-    horizontalSpeed = coast.horizontalSpeed;
-    downrangeDistance += coast.downrange;
+  if (coasting || orbitTargetPhase !== undefined) {
+    const radians = pitchAngle * Math.PI / 180;
+    const radialThrust = burnThrust * Math.sin(radians) / totalMass;
+    const tangentialThrust = burnThrust * Math.cos(radians) / totalMass;
+    const polar = polarStep(
+      altitude, verticalSpeed, horizontalSpeed + boost, boost, diameter, totalMass, dt,
+      radialThrust, tangentialThrust,
+    );
+    altitude = polar.altitude;
+    verticalSpeed = polar.verticalSpeed;
+    horizontalSpeed = polar.horizontalSpeed;
+    downrangeDistance += polar.downrange;
+    const relativeSpeed = Math.hypot(horizontalSpeed, verticalSpeed);
+    const drag = relativeSpeed > 0 ? dragPerMass(altitude, relativeSpeed, diameter, totalMass) / relativeSpeed : 0;
+    accelerationG = Math.hypot(radialThrust - drag * verticalSpeed, tangentialThrust - drag * horizontalSpeed) /
+      ATMOSPHERE.standardGravity;
   } else {
     const pitchRad = pitchAngle * Math.PI / 180;
     const radius = EARTH.radius + altitude;
@@ -186,7 +235,8 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
     downrangeDistance += horizontalSpeed * dt;
   }
 
-  const hitSurface = coasting && altitude <= 0 && verticalSpeed < 0;
+  const guidedDescent = orbitTargetPhase !== undefined && telemetry.altitude > 0 && telemetry.time > 10;
+  const hitSurface = (coasting || waitingForApoapsis || guidedDescent) && altitude <= 0 && verticalSpeed < 0;
   altitude = Math.max(0, altitude);
   if (hitSurface) {
     verticalSpeed = 0;
@@ -211,26 +261,37 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
   const periapsis = angularMomentum ** 2 / (EARTH.mu * (1 + eccentricity)) - EARTH.radius;
   const apoapsis = specificEnergy < 0 ? (-EARTH.mu / (2 * specificEnergy)) * (1 + eccentricity) - EARTH.radius : 0;
   const isOrbitAchieved = specificEnergy < 0 && periapsis > 140000;
-  const engineCutoff = coasting || (remainingFuel <= 0.1 && activeStageIndex === rocket.stages.length - 1);
+  if (orbitTargetPhase === 'circularization' && orbitTargetAltitude !== undefined &&
+      isOrbitAchieved && Math.abs(periapsis - orbitTargetAltitude) < TARGET_APSIS_TOLERANCE &&
+      Math.abs(apoapsis - orbitTargetAltitude) < TARGET_APSIS_TOLERANCE && Math.abs(verticalSpeed) < 2 &&
+      Math.abs(tangentialSpeed - calculateEarthCircularSpeed(altitude)) < 2) {
+    orbitTargetPhase = 'target reached';
+  }
+  const engineCutoff = hitSurface || guidanceEnded || orbitTargetPhase === 'target reached' || coasting || (remainingFuel <= 0.1 && activeStageIndex === rocket.stages.length - 1);
   const thrust = engineCutoff ? 0 : burnThrust;
   const twr = thrust / (totalMass * EARTH.mu / radius ** 2);
   const flightPathAngle = Math.atan2(verticalSpeed, tangentialSpeed) * 180 / Math.PI;
 
-  let statusMessage = 'Stage ' + (activeStageIndex + 1) + ' firing (' + Math.round(pitchAngle) + '° pitch)';
+  let statusMessage = orbitTargetPhase === 'circularization' ? 'Circularization burn.' : 'Stage ' + (activeStageIndex + 1) + ' firing (' + Math.round(pitchAngle) + '° pitch)';
   if (engineCutoff) {
+    if (orbitTargetPhase !== undefined && orbitTargetPhase !== 'target reached') orbitTargetPhase = 'target missed';
     accelerationG = dragPerMass(altitude, velocityEarthRelative, diameter, totalMass) / ATMOSPHERE.standardGravity;
     if (hitSurface) {
       phase = 'abort';
       statusMessage = 'Coast ended at Earth’s surface.';
     } else if (isOrbitAchieved) {
       phase = 'parking_orbit';
-      statusMessage = 'SECO: Engine cutoff. Coasting in a bound orbit.';
+      statusMessage = orbitTargetPhase === 'target reached'
+        ? 'Target orbit reached. Engine cutoff.'
+        : 'SECO: Engine cutoff. Coasting in a bound orbit.';
     } else {
       phase = 'coast';
       statusMessage = specificEnergy >= 0
         ? 'SECO: Engine cutoff. Unbound coast.'
         : 'SECO: Engine cutoff. Suborbital coast.';
     }
+  } else if (waitingForApoapsis) {
+    statusMessage = 'Coasting to target apoapsis.';
   } else if (remainingFuel <= 0.1) {
     activeStageIndex += 1;
     const nextStage = rocket.stages[activeStageIndex];
@@ -243,6 +304,7 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
   const nominalFuel = rocket.stages[activeStageIndex]?.fuelMass ?? 0;
   return {
     time,
+    orbitTargetPhase,
     altitude: Math.max(0, altitude),
     karmanCrossingTime,
     downrangeDistance,
@@ -266,7 +328,7 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
     periapsis,
     orbitalEnergy: specificEnergy,
     deltaVExpended,
-    deltaVRemaining: engineCutoff ? 0 : Math.max(0, calculateTotalRocketDeltaV(rocket) - deltaVExpended),
+    deltaVRemaining: engineCutoff && remainingFuel <= 0.1 ? 0 : Math.max(0, calculateTotalRocketDeltaV(rocket) - deltaVExpended),
     isOrbitAchieved,
     statusMessage,
     phase,

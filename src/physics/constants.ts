@@ -24,6 +24,8 @@ export const EARTH = {
   color: 0x2b65ec,
 };
 
+export const ISS_ORBIT_ALTITUDE = 420_000; // m, representative altitude
+
 // Moon Constants
 export const MOON = {
   mass: 7.342e22, // kg

@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 import type { RocketTelemetry } from '../../types/rocket';
 import { EARTH } from '../../physics/constants';
-import { calculateEarthEscapeSpeed, KARMAN_LINE_ALTITUDE } from '../../physics/rocketDynamics';
+import { calculateEarthCircularSpeed, calculateEarthEscapeSpeed, KARMAN_LINE_ALTITUDE } from '../../physics/rocketDynamics';
 import { Activity, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TelemetryHUDProps {
   telemetry: RocketTelemetry;
+  orbitTargetAltitude?: number;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
 }
 
 export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
   telemetry,
+  orbitTargetAltitude,
   isCollapsed,
   onToggleCollapse,
 }) => {
@@ -46,7 +48,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
   const crossingTime = telemetry.karmanCrossingTime;
 
   return (
-    <div className="absolute top-16 right-4 z-20 w-80 bg-gray-950/85 backdrop-blur-md border border-gray-800/80 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-3 font-mono">
+    <div className="absolute top-16 right-4 z-20 w-80 max-h-[calc(100dvh-5rem)] overflow-y-auto bg-gray-950/85 backdrop-blur-md border border-gray-800/80 rounded-2xl p-4 text-gray-200 shadow-2xl space-y-3 font-mono">
       <div className="flex items-center justify-between pb-2 border-b border-gray-800">
         <div className="flex items-center space-x-2">
           <Activity className="w-4 h-4 text-cyan-400 animate-pulse" />
@@ -126,6 +128,22 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
           </div>
         </div>
       </div>
+
+      {orbitTargetAltitude !== undefined && (
+        <div className="space-y-1 rounded-xl border border-cyan-800/60 bg-cyan-950/30 p-2.5 text-[11px]">
+          <div className="flex justify-between text-cyan-200">
+            <span>Circular orbit target</span>
+            <span>{orbitTargetAltitude / 1000} km</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Target inertial speed</span>
+            <span>{Math.round(calculateEarthCircularSpeed(orbitTargetAltitude))} m/s</span>
+          </div>
+          <div role="status" className="capitalize text-emerald-300">
+            {telemetry.orbitTargetPhase ?? 'Ready for liftoff'}
+          </div>
+        </div>
+      )}
 
       <div className="p-2.5 rounded-xl bg-gray-900/60 border border-gray-800/80 space-y-1 text-[11px]">
         <div className="flex justify-between">

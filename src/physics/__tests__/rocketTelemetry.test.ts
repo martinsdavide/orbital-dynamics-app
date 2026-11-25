@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ROCKET_PRESETS } from '../../data/rockets.ts';
 import { SPACEPORTS } from '../../data/spaceports.ts';
-import { EARTH } from '../constants.ts';
-import { calculateEarthEscapeSpeed, createPadTelemetry, KARMAN_LINE_ALTITUDE, simulateRocketAscentStep } from '../rocketDynamics.ts';
+import { EARTH, ISS_ORBIT_ALTITUDE } from '../constants.ts';
+import { calculateEarthCircularSpeed, calculateEarthEscapeSpeed, createPadTelemetry, KARMAN_LINE_ALTITUDE, simulateRocketAscentStep } from '../rocketDynamics.ts';
 
 test('Earth escape speed is about 11.2 km/s at sea level and falls with altitude', () => {
   const surface = calculateEarthEscapeSpeed(0);
@@ -77,4 +77,34 @@ test('A circular coast holds speed while a descending vacuum coast gains speed w
   assert.ok(descending.altitude < altitude);
   assert.ok(descending.velocity > Math.hypot(600, circularSpeed));
   assert.equal(descending.accelerationG, 0);
+});
+
+test('ISS-altitude guidance coasts to apoapsis and achieves a near-circular orbit with each rocket preset', () => {
+  const spaceport = SPACEPORTS.find(site => site.id === 'spacex_starbase')!;
+  const targetSpeed = calculateEarthCircularSpeed(ISS_ORBIT_ALTITUDE);
+  for (const rocket of ROCKET_PRESETS) {
+    let telemetry: ReturnType<typeof createPadTelemetry> = { ...createPadTelemetry(rocket, spaceport), phase: 'boost_stage1' };
+    const step = () => simulateRocketAscentStep({
+      timeSeconds: telemetry.time, dt: 0.1, rocket, spaceport, telemetry, userThrottle: 1,
+      autoGuidance: true, orbitTargetAltitude: ISS_ORBIT_ALTITUDE,
+    });
+    const phases = new Set<string>();
+    for (let i = 0; i < 30_000; i++) {
+      const next = step();
+      if (telemetry.orbitTargetPhase === 'coast to apoapsis' && next.orbitTargetPhase === 'coast to apoapsis') {
+        assert.equal(next.thrust, 0);
+        assert.equal(next.remainingFuel, telemetry.remainingFuel);
+      }
+      telemetry = next;
+      if (telemetry.orbitTargetPhase) phases.add(telemetry.orbitTargetPhase);
+      if (telemetry.orbitTargetPhase === 'target reached' || telemetry.orbitTargetPhase === 'target missed') break;
+    }
+    assert.deepEqual([...phases], ['ascent', 'coast to apoapsis', 'circularization', 'target reached'], rocket.name);
+    assert.equal(telemetry.phase, 'parking_orbit', rocket.name);
+    assert.ok(telemetry.isOrbitAchieved && telemetry.remainingFuel > 0, rocket.name);
+    assert.ok(Math.abs(telemetry.apoapsis - ISS_ORBIT_ALTITUDE) < 8000, rocket.name);
+    assert.ok(Math.abs(telemetry.periapsis - ISS_ORBIT_ALTITUDE) < 8000, rocket.name);
+    assert.ok(Math.abs(telemetry.velocity - targetSpeed) < 10, rocket.name);
+    assert.equal(step().thrust, 0, rocket.name);
+  }
 });
