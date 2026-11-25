@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { EARTH } from '../../physics/constants.ts';
 import type { RocketTelemetry } from '../../types/rocket';
+import { ViewportBillboard } from './ViewportBillboard';
 import { createPlanetLabelTexture } from './TextureGenerator';
 
 const ISS_ALTITUDE = 420_000;
@@ -65,12 +66,9 @@ export class LaunchPaths {
         this.chassis.add(panel);
       }
     }
-    const label = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: createPlanetLabelTexture('ISS', '#67bcff'),
-      transparent: true,
-    }));
-    label.position.y = 0.16;
-    label.scale.set(0.76, 0.19, 1);
+    const label = new ViewportBillboard(createPlanetLabelTexture('ISS', '#67bcff'), 76, 19);
+    label.position.y = 0.04;
+    label.center.y = -0.18;
     this.station.add(this.chassis, label);
     this.group.add(this.orbit, this.station, this.trail);
     scene.add(this.group);

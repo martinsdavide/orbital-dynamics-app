@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import earthSurfaceUrl from '../../assets/earth-surface.jpg';
 import { LAUNCH_MODEL_SCALE, LaunchVehicle } from './LaunchVehicle';
 import { LaunchPaths } from './LaunchPaths';
+import { ViewportBillboard } from './ViewportBillboard';
 import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey } from '../../types/celestial';
 import { calculatePlanetaryMoonPosition, PLANETARY_MOONS, type PlanetaryMoonKey } from '../../physics/planetaryMoons.ts';
 import type { Spaceport } from '../../types/spaceport';
@@ -111,9 +112,8 @@ export function getScalingConfig(scaleMode: ScaleMode) {
   }
 }
 
-const PLANET_BADGE_WIDTH = 80;
-const PLANET_BADGE_HEIGHT = 20;
-const PLANET_BADGE_OFFSET = PLANET_BADGE_HEIGHT / 2 + 4;
+const PLANET_BADGE_WIDTH = 112;
+const PLANET_BADGE_HEIGHT = 28;
 
 const MAX_TRAIL_POINTS = 4000;
 
@@ -526,14 +526,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     // Earth Billboard Label Sprite
     const earthLabelTex = createPlanetLabelTexture('Earth', '#2b65ec');
-    const earthSpriteMat = new THREE.SpriteMaterial({
-      map: earthLabelTex,
-      transparent: true,
-      depthTest: false,
-    });
-    const earthLabelSprite = new THREE.Sprite(earthSpriteMat);
-    earthLabelSprite.position.set(0, SCALING.visual.earthRadius + PLANET_BADGE_OFFSET, 0);
-    earthLabelSprite.scale.set(PLANET_BADGE_WIDTH, PLANET_BADGE_HEIGHT, 1);
+    const earthLabelSprite = new ViewportBillboard(earthLabelTex, PLANET_BADGE_WIDTH, PLANET_BADGE_HEIGHT, false);
+    earthLabelSprite.position.y = SCALING.visual.earthRadius;
+    earthLabelSprite.center.y = -0.18;
     earthGroup.add(earthLabelSprite);
     earthLabelSpriteRef.current = earthLabelSprite;
 
@@ -674,14 +669,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
       // Billboard Planet Label Sprite
       const labelTex = createPlanetLabelTexture(cfg.name, cfg.colorHex);
-      const spriteMat = new THREE.SpriteMaterial({
-        map: labelTex,
-        transparent: true,
-        depthTest: false,
-      });
-      const labelSprite = new THREE.Sprite(spriteMat);
-      labelSprite.position.set(0, cfg.visualRadius + PLANET_BADGE_OFFSET, 0);
-      labelSprite.scale.set(PLANET_BADGE_WIDTH, PLANET_BADGE_HEIGHT, 1);
+      const labelSprite = new ViewportBillboard(labelTex, PLANET_BADGE_WIDTH, PLANET_BADGE_HEIGHT, false);
+      labelSprite.position.y = cfg.visualRadius;
+      labelSprite.center.y = -0.18;
       planetGroup.add(labelSprite);
 
       const orbitGeo = new THREE.BufferGeometry();
@@ -719,11 +709,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         emissiveIntensity: 0.12,
       }));
       mesh.name = `moon_${config.key}`;
-      const label = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: createPlanetLabelTexture(config.name, config.color),
-        transparent: true,
-        depthTest: false,
-      }));
+      const label = new ViewportBillboard(createPlanetLabelTexture(config.name, config.color), 84, 21, false);
+      label.center.y = -0.18;
       const orbit = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({
         color: config.color,
         transparent: true,
@@ -1149,6 +1136,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       earthTex.dispose();
       earthGeo.dispose();
       earthMat.dispose();
+      earthLabelTex.dispose();
+      earthLabelSprite.material.dispose();
       atmoGeo.dispose();
       atmoMat.dispose();
       axisGeo.dispose();
@@ -1180,8 +1169,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         (node.mesh.material as THREE.Material).dispose();
         node.orbitLine.geometry.dispose();
         (node.orbitLine.material as THREE.Material).dispose();
-        node.labelSprite.geometry.dispose();
-        (node.labelSprite.material as THREE.Material).dispose();
+        node.labelSprite.material.map?.dispose();
+        node.labelSprite.material.dispose();
         if (node.ringMesh) {
           node.ringMesh.geometry.dispose();
           (node.ringMesh.material as THREE.Material).dispose();
@@ -1208,7 +1197,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
   useEffect(() => {
     const { earthRadius, sunEarthDistance } = getScalingConfig(scaleMode);
-    if (earthLabelSpriteRef.current) earthLabelSpriteRef.current.position.y = earthRadius + PLANET_BADGE_OFFSET;
+    if (earthLabelSpriteRef.current) earthLabelSpriteRef.current.position.y = earthRadius;
     const earthOrbit = samplePlanetOrbit(EARTH_ORBIT, scaleMode, sunEarthDistance);
     if (earthOrbitLineRef.current) {
       earthOrbitLineRef.current.geometry.setFromPoints(earthOrbit).computeBoundingSphere();
@@ -1221,7 +1210,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     planetRenderNodesRef.current.forEach(({ config, mesh, orbitLine, labelSprite }) => {
       const radius = getPlanetDisplayRadius(config, scaleMode);
       mesh.scale.setScalar(radius / config.visualRadius);
-      labelSprite.position.y = radius + PLANET_BADGE_OFFSET;
+      labelSprite.position.y = radius;
       orbitLine.geometry.setFromPoints(samplePlanetOrbit(config, scaleMode, sunEarthDistance)).computeBoundingSphere();
     });
 
@@ -1479,11 +1468,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       const pos = calculatePlanetaryMoonPosition(config, host, ephemeris.timeSeconds);
       mesh.position.set(pos.x, pos.y, pos.z).multiplyScalar(distanceScale);
       mesh.rotation.y = Math.atan2(pos.x, pos.z);
-      const focused = cameraPreset === config.key;
-      const labelHeight = focused ? Math.max(0.34, radius * 0.7) : 2.4;
-      label.scale.set(4 * labelHeight, labelHeight, 1);
       label.position.copy(mesh.position);
-      label.position.y += radius + labelHeight * 0.65;
+      label.position.y += radius;
       label.visible = showPlanetLabels;
       orbit.visible = showPlanetaryOrbits;
     }
@@ -1744,14 +1730,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           if (!badgePos) return;
 
           const texture = createMilestoneBadgeTexture(m.id, m.color);
-          const spriteMat = new THREE.SpriteMaterial({
-            map: texture,
-            transparent: true,
-            depthTest: false,
-          });
-          const sprite = new THREE.Sprite(spriteMat);
+          const sprite = new ViewportBillboard(texture, 32, 32, false);
           sprite.position.copy(badgePos);
-          sprite.scale.set(7.5, 7.5, 1);
           milestoneBadgesGroupRef.current?.add(sprite);
         });
         milestoneBadgesGroupRef.current.visible = true;
