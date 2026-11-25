@@ -85,6 +85,91 @@ export function createMoonTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+// Stylized Callisto: dark ice and rock, densely cratered with a Valhalla-like ring system.
+export function createCallistoTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const { width, height } = canvas;
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(width, height);
+  const longitudes = Array.from({ length: width }, (_, x) => 2 * Math.PI * (x / width - 0.5));
+  const cosLongitude = longitudes.map(angle => Math.cos(angle));
+  const sinLongitude = longitudes.map(angle => Math.sin(angle));
+  const basinLatitude = 15.5 * Math.PI / 180;
+  const basinLongitude = -56 * Math.PI / 180;
+  const basinX = Math.cos(basinLatitude) * Math.cos(basinLongitude);
+  const basinY = Math.sin(basinLatitude);
+  const basinZ = Math.cos(basinLatitude) * Math.sin(basinLongitude);
+
+  for (let row = 0; row < height; row++) {
+    const latitude = Math.PI * (0.5 - row / height);
+    const y = Math.sin(latitude);
+    const latitudeRadius = Math.cos(latitude);
+    for (let col = 0; col < width; col++) {
+      const x = latitudeRadius * cosLongitude[col];
+      const z = latitudeRadius * sinLongitude[col];
+      const terrain = 9 * Math.sin(x * 9 + z * 7) * Math.cos(y * 11 - z * 4) +
+        6 * Math.sin(x * 26 + y * 31) * Math.cos(z * 26 - y * 13) +
+        5 * Math.sin(x * 94 - y * 55 + z * 87) * Math.cos(y * 89 + z * 101);
+      const basinDistance = Math.acos(Math.min(1, basinX * x + basinY * y + basinZ * z));
+      const centralIce = 38 * Math.exp(-((basinDistance / 0.14) ** 2));
+      const rings = 18 * Math.max(0, Math.cos(basinDistance * 99 + 0.55 * Math.sin(y * 48 + x * 35))) ** 4 *
+        Math.max(0, 1 - basinDistance / 0.5);
+      const shade = terrain + centralIce + rings;
+      const index = (row * width + col) * 4;
+      image.data[index] = 108 + shade;
+      image.data[index + 1] = 92 + shade;
+      image.data[index + 2] = 79 + shade;
+      image.data[index + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+
+  // Vary crater scale and relief, wrapping each rim across the longitude seam.
+  let seed = 5783;
+  const random = () => {
+    seed = (Math.imul(1664525, seed) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  const rim = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  rim.addColorStop(0, 'rgba(46, 38, 34, 0.25)');
+  rim.addColorStop(0.64, 'rgba(57, 47, 41, 0.22)');
+  rim.addColorStop(0.83, 'rgba(206, 190, 165, 0.4)');
+  rim.addColorStop(1, 'rgba(206, 190, 165, 0)');
+  for (let i = 0; i < 880; i++) {
+    const x = random() * width;
+    const latitude = Math.asin(2 * random() - 1);
+    const y = height * (0.5 - latitude / Math.PI);
+    const size = 1.2 + 22 * random() ** 6;
+    const relief = 0.45 + 0.55 * random();
+    const rimAngle = random() * 2 * Math.PI;
+    const flattening = 0.8 + 0.2 * random();
+    const longitudeRadius = size / Math.max(0.22, Math.cos(latitude));
+    for (const offset of [-width, 0, width]) {
+      ctx.save();
+      ctx.translate(x + offset, y);
+      ctx.scale(longitudeRadius, size * flattening);
+      ctx.globalAlpha = relief;
+      ctx.fillStyle = rim;
+      ctx.fillRect(-1, -1, 2, 2);
+      if (size > 3) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 0.83, rimAngle, rimAngle + Math.PI * 0.82);
+        ctx.strokeStyle = 'rgba(230, 216, 190, 0.35)';
+        ctx.lineWidth = 0.08;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  return texture;
+}
+
 // Procedural Dynamic Sun Surface Texture
 export function createSunTexture(): THREE.CanvasTexture {
   const width = 1024;

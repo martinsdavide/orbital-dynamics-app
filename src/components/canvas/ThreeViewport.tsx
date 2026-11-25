@@ -1,6 +1,7 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import earthSurfaceUrl from '../../assets/earth-surface.jpg';
+import ganymedeSurfaceUrl from '../../assets/ganymede-surface.webp';
 import { LAUNCH_MODEL_SCALE, LaunchVehicle } from './LaunchVehicle';
 import { LaunchPaths } from './LaunchPaths';
 import { ViewportBillboard } from './ViewportBillboard';
@@ -15,6 +16,7 @@ import { calculatePlanetOrbit, EARTH_ORBIT } from '../../physics/orbitalMechanic
 import { getMoonOrbitScale, getPlanetDisplayRadius, getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from './PlanetaryScene';
 import {
   createMoonTexture,
+  createCallistoTexture,
   createSunTexture,
   createParticleTexture,
   createMercuryTexture,
@@ -711,14 +713,28 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     for (const config of PLANETARY_MOONS) {
       const host = planetRenderNodesRef.current.get(config.host)!;
       const irregular = config.host === 'mars';
-      const geometry = irregular ? new THREE.IcosahedronGeometry(1, 2) : new THREE.SphereGeometry(1, 24, 16);
-      const map = config.key === 'titan' ? undefined : createMoonTexture();
+      const jupiterMoon = config.host === 'jupiter';
+      const geometry = irregular
+        ? new THREE.IcosahedronGeometry(1, 2)
+        : new THREE.SphereGeometry(1, jupiterMoon ? 64 : 24, jupiterMoon ? 40 : 16);
+      let map: THREE.Texture | null = null;
+      if (config.key === 'ganymede') {
+        map = new THREE.TextureLoader().load(ganymedeSurfaceUrl);
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.wrapS = THREE.RepeatWrapping;
+      } else if (config.key === 'callisto') {
+        map = createCallistoTexture();
+      } else if (irregular) {
+        map = createMoonTexture();
+      }
+
       const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
-        color: config.color,
+        color: jupiterMoon ? 0xffffff : config.color,
         map,
         roughness: map ? 0.95 : 0.8,
-        emissive: config.color,
-        emissiveIntensity: 0.12,
+        emissive: jupiterMoon ? 0xffffff : config.color,
+        emissiveMap: jupiterMoon ? map : null,
+        emissiveIntensity: jupiterMoon ? 0.23 : 0.12,
       }));
       mesh.name = `moon_${config.key}`;
       const label = new ViewportBillboard(createPlanetLabelTexture(config.name, config.color), 84, 21, false);
