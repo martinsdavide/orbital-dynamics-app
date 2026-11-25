@@ -9,7 +9,7 @@
 ### 1. 🪐 Sun-Earth-Moon Celestial Dynamics
 - **High-Fidelity 3D Physics**:
   - Realistic Keplerian orbital propagation with true planetary eccentricities, orbital periods, and axial tilts ($23.44^\circ$ Earth obliquity, $5.145^\circ$ Moon ecliptic inclination with $18.6$-year nodal precession cycle).
-  - Procedurally generated high-resolution planetary textures (Earth continents, oceans, ice caps, cloud atmosphere; Moon maria & impact craters; Sun convective plasma & sunspots) running 100% offline with zero CDN dependencies.
+  - Earth uses a bundled [2,048 × 1,024 surface map from the Three.js examples](https://github.com/mrdoob/three.js/blob/dev/examples/textures/planets/earth_atmos_2048.jpg). The app generates the Moon, Sun, and other planet textures locally.
 - **Multiple Coordinate Reference Frames**:
   - **Heliocentric**: Sun-centered solar system orbit overview.
   - **Geocentric**: Earth-centered cislunar dynamics view.

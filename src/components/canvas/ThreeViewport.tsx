@@ -1,5 +1,6 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
+import earthSurfaceUrl from '../../assets/earth-surface.jpg';
 import { LaunchVehicle } from './LaunchVehicle';
 import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey } from '../../types/celestial';
 import { calculatePlanetaryMoonPosition, PLANETARY_MOONS, type PlanetaryMoonKey } from '../../physics/planetaryMoons.ts';
@@ -11,7 +12,6 @@ import { calculateLunarOrbitPoint } from '../../physics/nBodyIntegrator.ts';
 import { calculatePlanetOrbit, EARTH_ORBIT } from '../../physics/orbitalMechanics.ts';
 import { getMoonOrbitScale, getPlanetDisplayRadius, getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from './PlanetaryScene';
 import {
-  createEarthTexture,
   createMoonTexture,
   createSunTexture,
   createParticleTexture,
@@ -204,6 +204,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const earthGroupRef = useRef<THREE.Group | null>(null);
   const earthMeshRef = useRef<THREE.Mesh | null>(null);
   const earthAtmoRef = useRef<THREE.Mesh | null>(null);
+  const earthRotationAxisRef = useRef<THREE.Mesh | null>(null);
   const moonGroupRef = useRef<THREE.Group | null>(null);
   const moonMeshRef = useRef<THREE.Mesh | null>(null);
   const lunarSOIMeshRef = useRef<THREE.Mesh | null>(null);
@@ -425,12 +426,15 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     scene.add(earthGroup);
     earthGroupRef.current = earthGroup;
 
-    const earthTex = createEarthTexture();
-    const earthGeo = new THREE.SphereGeometry(SCALING.visual.earthRadius, 48, 48);
+    const earthTex = new THREE.TextureLoader().load(earthSurfaceUrl);
+    earthTex.colorSpace = THREE.SRGBColorSpace;
+    earthTex.wrapS = THREE.RepeatWrapping;
+    earthTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const earthRadius = SCALING.visual.earthRadius;
+    const earthGeo = new THREE.SphereGeometry(earthRadius, 96, 64);
     const earthMat = new THREE.MeshStandardMaterial({
       map: earthTex,
-      roughness: 0.6,
-      metalness: 0.1,
+      roughness: 0.88,
     });
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
     // Apply the fixed ecliptic tilt after the surface spins around its local Y axis.
@@ -439,19 +443,47 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     earthGroup.add(earthMesh);
     earthMeshRef.current = earthMesh;
 
-    const atmoGeo = new THREE.SphereGeometry(SCALING.visual.earthRadius * 1.04, 36, 36);
-    const atmoMat = new THREE.MeshBasicMaterial({
-      color: 0x4da6ff,
+    const atmoGeo = new THREE.SphereGeometry(earthRadius * 1.025, 64, 48);
+    const atmoMat = new THREE.ShaderMaterial({
       transparent: true,
-      opacity: 0.25,
-      side: THREE.BackSide,
+      depthWrite: false,
+      vertexShader: `
+        varying vec3 surfaceNormal;
+        varying vec3 viewDirection;
+        void main() {
+          vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
+          surfaceNormal = normalMatrix * normal;
+          viewDirection = -viewPosition.xyz;
+          gl_Position = projectionMatrix * viewPosition;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 surfaceNormal;
+        varying vec3 viewDirection;
+        void main() {
+          float facing = clamp(dot(normalize(surfaceNormal), normalize(viewDirection)), 0.0, 1.0);
+          float rim = pow(1.0 - facing, 5.0) * smoothstep(0.0, 0.24, facing);
+          gl_FragColor = vec4(0.22, 0.57, 1.0, rim * 0.72);
+          #include <colorspace_fragment>
+        }
+      `,
     });
     const earthAtmo = new THREE.Mesh(atmoGeo, atmoMat);
     earthMesh.add(earthAtmo);
     earthAtmoRef.current = earthAtmo;
 
-    // Launchpad Marker
+    // Local Y crosses both geographic poles and stays fixed as the surface spins.
+    const axisGeo = new THREE.CylinderGeometry(earthRadius * 0.009, earthRadius * 0.009, earthRadius * 2.5, 12);
+    const axisMat = new THREE.MeshBasicMaterial({ color: 0xffce78, toneMapped: false });
+    const earthAxis = new THREE.Mesh(axisGeo, axisMat);
+    earthAxis.name = 'Earth rotation axis';
+    earthAxis.visible = false;
+    earthMesh.add(earthAxis);
+    earthRotationAxisRef.current = earthAxis;
+
     const launchpadGroup = new THREE.Group();
+    launchpadGroup.name = 'Launch base marker';
+    launchpadGroup.visible = false;
     const pinGeo = new THREE.ConeGeometry(0.5, 1.8, 16);
     const pinMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
     const pinMesh = new THREE.Mesh(pinGeo, pinMat);
@@ -1088,6 +1120,13 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         dom.removeChild(rendererRef.current.domElement);
         rendererRef.current.dispose();
       }
+      earthTex.dispose();
+      earthGeo.dispose();
+      earthMat.dispose();
+      atmoGeo.dispose();
+      atmoMat.dispose();
+      axisGeo.dispose();
+      axisMat.dispose();
       launchVehicle.dispose();
       particleGeo.dispose();
       particleMat.dispose();
@@ -1372,6 +1411,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       moonMeshRef.current.rotation.y = moonAngle;
     }
 
+    if (earthRotationAxisRef.current) earthRotationAxisRef.current.visible = appMode === 'system';
     if (earthAtmoRef.current) {
       earthAtmoRef.current.visible = showAtmosphereGlow;
     }
@@ -1442,7 +1482,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       camera.updateProjectionMatrix();
     }
     launchVehicle?.setVisible(appMode === 'launch');
-    if (launchpadMarkerRef.current) launchpadMarkerRef.current.visible = !closeup;
+    if (launchpadMarkerRef.current) launchpadMarkerRef.current.visible = appMode !== 'system' && !closeup;
 
     if (appMode === 'launch') {
       if (launchVehicle && launchpadMarkerRef.current) {
