@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getEphemerisState, magnitude } from '../orbitalMechanics.ts';
-import { EARTH, MOON, PLANET_CONFIGS, SUN } from '../constants.ts';
+import { DWARF_PLANET_CONFIGS, EARTH, MOON, PLANET_CONFIGS, SUN } from '../constants.ts';
 import { Vector3 } from 'three';
 import { getMoonOrbitScale, getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from '../../components/canvas/PlanetaryScene.ts';
 import { calculatePlanetaryMoonPosition, PLANETARY_MOONS } from '../planetaryMoons.ts';
@@ -156,4 +156,28 @@ test('Jupiter moon orbits retain their relative spacing in visual scale', () => 
   assert.ok(ganymede.semiMajorAxis * scale > jupiter.visualRadius);
   assert.ok(ganymede.semiMajorAxis * scale < callisto.semiMajorAxis * scale);
   assert.ok(callisto.semiMajorAxis * scale <= 100 + 1e-10);
+});
+
+test('Pluto is represented separately with an inclined orbit aligned to its rendered guide', () => {
+  const [config] = DWARF_PLANET_CONFIGS;
+  const initial = getEphemerisState(0);
+  const [pluto] = initial.dwarfPlanets;
+  assert.equal(initial.planets.length, 8);
+  assert.equal(pluto.key, 'pluto');
+
+  const position = new Vector3().copy(pluto.position);
+  const pole = position.clone().cross(pluto.velocity).normalize();
+  assert.ok(Math.abs(Math.acos(pole.y) * 180 / Math.PI - 17.14) < 0.01);
+  const ascendingNode = new Vector3(0, 1, 0).cross(pole).normalize();
+  const longitude = Math.atan2(-ascendingNode.z, ascendingNode.x) * 180 / Math.PI;
+  assert.ok(Math.abs(longitude - 110.30) < 0.01);
+
+  const [returned] = getEphemerisState(pluto.orbitalPeriod).dwarfPlanets;
+  assert.ok(position.distanceTo(returned.position) / pluto.semiMajorAxis < 1e-12);
+
+  for (const [mode, sunEarthDistance] of [['visual', 320], ['true', 1200]] as const) {
+    const guide = samplePlanetOrbit(config, mode, sunEarthDistance);
+    const [quarter] = getEphemerisState(pluto.orbitalPeriod / 4).dwarfPlanets;
+    assert.ok(projectPlanet(quarter.position, config, mode, sunEarthDistance).distanceTo(guide[64]) < 1e-8);
+  }
 });

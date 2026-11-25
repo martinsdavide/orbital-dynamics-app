@@ -79,7 +79,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
 
   const [selectedPlanetKey, setSelectedPlanetKey] = useState<PlanetKey>('mars');
   const selectedPlanet =
-    ephemeris.planets?.find((p) => p.key === selectedPlanetKey) || ephemeris.planets?.[0];
+    [...ephemeris.planets, ...ephemeris.dwarfPlanets].find(p => p.key === selectedPlanetKey) ?? ephemeris.planets[0];
 
   if (collapsed) {
     return (
@@ -295,7 +295,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
       <div className="space-y-2 pt-2 border-t border-gray-800/80 text-xs">
         <label className="text-[11px] font-mono uppercase text-amber-400 font-bold flex items-center space-x-1.5">
           <Globe2 className="w-3.5 h-3.5 text-amber-400" />
-          <span>Solar System Planetary Bodies</span>
+          <span>Solar System Bodies</span>
         </label>
 
         <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
@@ -328,8 +328,9 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
         {ephemeris.planets && ephemeris.planets.length > 0 && (
           <div className="p-2.5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-2 font-mono">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Inspect Planet</span>
+              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Inspect Body</span>
               <select
+                aria-label="Inspect solar system body"
                 value={selectedPlanetKey}
                 onChange={(e) => setSelectedPlanetKey(e.target.value as PlanetKey)}
                 className="bg-gray-800 text-gray-200 text-xs px-2 py-0.5 rounded border border-gray-700 focus:outline-none cursor-pointer"
@@ -338,6 +339,9 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
                   <option key={p.key} value={p.key} className="bg-gray-900">
                     {p.name}
                   </option>
+                ))}
+                {ephemeris.dwarfPlanets.map(body => (
+                  <option key={body.key} value={body.key} className="bg-gray-900">{body.name} (dwarf planet)</option>
                 ))}
               </select>
             </div>

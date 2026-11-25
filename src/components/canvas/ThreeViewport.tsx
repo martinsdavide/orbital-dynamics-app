@@ -9,7 +9,7 @@ import { calculatePlanetaryMoonPosition, PLANETARY_MOONS, type PlanetaryMoonKey 
 import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 import type { EarthMoonTrajectory } from '../../types/trajectory';
-import { SCALING, EARTH, MOON, SUN, PLANET_CONFIGS, type PlanetConfig } from '../../physics/constants.ts';
+import { SCALING, EARTH, MOON, SUN, PLANET_CONFIGS, DWARF_PLANET_CONFIGS, type PlanetConfig } from '../../physics/constants.ts';
 import { calculateLunarOrbitPoint } from '../../physics/nBodyIntegrator.ts';
 import { calculatePlanetOrbit, EARTH_ORBIT } from '../../physics/orbitalMechanics.ts';
 import { getMoonOrbitScale, getPlanetDisplayRadius, getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from './PlanetaryScene';
@@ -25,6 +25,7 @@ import {
   createSaturnRingTexture,
   createUranusTexture,
   createNeptuneTexture,
+  createPlutoTexture,
   createPlanetLabelTexture,
 } from './TextureGenerator';
 
@@ -133,6 +134,7 @@ export type CameraPreset =
   | 'saturn'
   | 'uranus'
   | 'neptune'
+  | 'pluto'
   | 'rocket'
   | 'rocket_closeup'
   | 'launch_overview'
@@ -321,6 +323,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         else if (cameraPreset === 'jupiter') defaultRadius = scaleMode === 'true' ? 80 : 55;
         else if (cameraPreset === 'saturn') defaultRadius = scaleMode === 'true' ? 75 : 50;
         else if (cameraPreset === 'uranus') defaultRadius = scaleMode === 'true' ? 35 : 32;
+        else if (cameraPreset === 'pluto') defaultRadius = scaleMode === 'true' ? 5 : DWARF_PLANET_CONFIGS[0].visualRadius * 2.8;
         else if (cameraPreset === 'neptune') defaultRadius = scaleMode === 'true' ? 35 : 30;
         else if (moon) defaultRadius = Math.max(2, moon.radius * 5);
         else if (scaleMode === 'true') defaultRadius = scales.earthMoonDistance * 0.75;
@@ -597,7 +600,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     // Planetary Systems: Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune
     planetRenderNodesRef.current.clear();
-    PLANET_CONFIGS.filter((p) => p.key !== 'earth').forEach((cfg) => {
+    [...PLANET_CONFIGS, ...DWARF_PLANET_CONFIGS].filter((p) => p.key !== 'earth').forEach((cfg) => {
       const planetGroup = new THREE.Group();
       planetGroup.name = `planet_group_${cfg.key}`;
       scene.add(planetGroup);
@@ -625,6 +628,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         case 'neptune':
           tex = createNeptuneTexture();
           break;
+        case 'pluto':
+          tex = createPlutoTexture();
+          break;
         default:
           tex = createMercuryTexture();
           break;
@@ -637,6 +643,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         metalness: 0.1,
       });
       const mesh = new THREE.Mesh(geo, mat);
+      if (cfg.key === 'pluto') mesh.rotation.order = 'ZYX';
       mesh.rotation.z = cfg.axialTiltRad;
       planetGroup.add(mesh);
 
@@ -1454,7 +1461,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     // Update planetary positions in current reference frame
     if (ephemeris.planets) {
-      ephemeris.planets.forEach((p) => {
+      [...ephemeris.planets, ...ephemeris.dwarfPlanets].forEach((p) => {
         if (p.key === 'earth') {
           if (earthLabelSpriteRef.current) {
             earthLabelSpriteRef.current.visible = showPlanetLabels && appMode === 'system';
@@ -1830,7 +1837,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       cameraPreset === 'jupiter' ||
       cameraPreset === 'saturn' ||
       cameraPreset === 'uranus' ||
-      cameraPreset === 'neptune'
+      cameraPreset === 'neptune' ||
+      cameraPreset === 'pluto'
     ) {
       const pNode = planetRenderNodesRef.current.get(cameraPreset);
       if (pNode) {

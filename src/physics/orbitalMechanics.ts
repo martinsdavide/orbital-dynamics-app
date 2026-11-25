@@ -1,4 +1,4 @@
-import { SUN, EARTH, MOON, SCALING, PLANET_CONFIGS, type PlanetConfig } from './constants.ts';
+import { SUN, EARTH, MOON, SCALING, PLANET_CONFIGS, DWARF_PLANET_CONFIGS, type PlanetConfig } from './constants.ts';
 import type { Vector3D, CelestialBodyState, PlanetState, LagrangePoint, EphemerisState, ReferenceFrame, ScaleMode } from '../types/celestial.ts';
 
 export function calculateKeplerianOrbit(
@@ -8,7 +8,9 @@ export function calculateKeplerianOrbit(
   inclinationRad: number,
   timeSeconds: number,
   meanAnomalyOffset: number = 0,
-  centralMu: number = EARTH.mu
+  centralMu: number = EARTH.mu,
+  argumentOfPerihelion = 0,
+  ascendingNode = 0
 ): { position: Vector3D; velocity: Vector3D } {
   const meanMotion = (2 * Math.PI) / orbitalPeriod;
   const meanAnomaly = (meanAnomalyOffset + meanMotion * timeSeconds) % (2 * Math.PI);
@@ -26,32 +28,33 @@ export function calculateKeplerianOrbit(
 
   const r = semiMajorAxis * (1 - eccentricity * Math.cos(E));
 
-  // Authoritative convention: XZ = Ecliptic plane, +Y = Ecliptic North, Ascending node on +X
+  // The scene uses XZ for the ecliptic and +Y for ecliptic north.
   const cosInc = Math.cos(inclinationRad);
   const sinInc = Math.sin(inclinationRad);
-
-  const x = r * Math.cos(nu);
-  const y = r * sinInc * Math.sin(nu);
-  const z = -r * cosInc * Math.sin(nu);
-
+  const cosNode = Math.cos(ascendingNode);
+  const sinNode = Math.sin(ascendingNode);
+  const orient = (alongNode: number, acrossNode: number): Vector3D => ({
+    x: alongNode * cosNode - acrossNode * cosInc * sinNode,
+    y: acrossNode * sinInc,
+    z: -alongNode * sinNode - acrossNode * cosInc * cosNode,
+  });
+  const argumentOfLatitude = nu + argumentOfPerihelion;
   const p = Math.max(1e3, semiMajorAxis * (1 - eccentricity * eccentricity));
-  const vxOrb = -Math.sqrt(centralMu / p) * Math.sin(nu);
-  const vtransOrb = Math.sqrt(centralMu / p) * (eccentricity + Math.cos(nu));
-
-  const vx = vxOrb;
-  const vy = sinInc * vtransOrb;
-  const vz = -cosInc * vtransOrb;
+  const velocityScale = Math.sqrt(centralMu / p);
+  const alongNode = velocityScale * (-Math.sin(argumentOfLatitude) - eccentricity * Math.sin(argumentOfPerihelion));
+  const acrossNode = velocityScale * (Math.cos(argumentOfLatitude) + eccentricity * Math.cos(argumentOfPerihelion));
 
   return {
-    position: { x, y, z },
-    velocity: { x: vx, y: vy, z: vz },
+    position: orient(r * Math.cos(argumentOfLatitude), r * Math.sin(argumentOfLatitude)),
+    velocity: orient(alongNode, acrossNode),
   };
 }
 
 export function calculatePlanetOrbit(planet: PlanetConfig, timeSeconds: number) {
   return calculateKeplerianOrbit(
     planet.semiMajorAxis, planet.eccentricity, planet.orbitalPeriod,
-    planet.inclinationToEclipticRad, timeSeconds, planet.meanAnomalyJ2000Rad ?? 0, SUN.mu
+    planet.inclinationToEclipticRad, timeSeconds, planet.meanAnomalyJ2000Rad ?? 0, SUN.mu,
+    planet.argumentOfPerihelionRad, planet.ascendingNodeRad
   );
 }
 
@@ -178,7 +181,7 @@ export function getEphemerisState(timeSeconds: number): EphemerisState {
 
   const moonPhaseAngle = Math.acos(Math.max(-1, Math.min(1, dotProduct(normalize({ x: -earthState.position.x, y: -earthState.position.y, z: -earthState.position.z }), earthToMoon))));
 
-  const planets: PlanetState[] = PLANET_CONFIGS.map((cfg) => {
+  const toPlanetState = (cfg: PlanetConfig): PlanetState => {
     if (cfg.key === 'earth') {
       const distFromSun = magnitude(earthState.position);
       return {
@@ -228,14 +231,15 @@ export function getEphemerisState(timeSeconds: number): EphemerisState {
       distanceFromSunMeters: distFromSun,
       distanceFromEarthMeters: distFromEarth,
     };
-  });
+  };
 
   return {
     timeSeconds,
     sun: sunState,
     earth: earthState,
     moon: moonState,
-    planets,
+    planets: PLANET_CONFIGS.map(toPlanetState),
+    dwarfPlanets: DWARF_PLANET_CONFIGS.map(toPlanetState),
     lagrangePoints,
     earthPhaseAngle: (timeSeconds / EARTH.orbitalPeriod) * 360,
     moonPhaseAngle: (moonPhaseAngle * 180) / Math.PI,

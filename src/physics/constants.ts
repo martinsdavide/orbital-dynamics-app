@@ -53,7 +53,7 @@ export const ATMOSPHERE = {
 // Solar System Planets Constants (IAU / NASA Planetary Fact Sheets)
 export interface PlanetConfig {
   name: string;
-  key: 'mercury' | 'venus' | 'earth' | 'mars' | 'jupiter' | 'saturn' | 'uranus' | 'neptune';
+  key: 'mercury' | 'venus' | 'earth' | 'mars' | 'jupiter' | 'saturn' | 'uranus' | 'neptune' | 'pluto';
   mass: number; // kg
   radius: number; // m
   semiMajorAxis: number; // m
@@ -70,6 +70,8 @@ export interface PlanetConfig {
   visualDistance: number;
   hasRings?: boolean;
   meanAnomalyJ2000Rad?: number;
+  argumentOfPerihelionRad?: number;
+  ascendingNodeRad?: number;
 }
 
 export const PLANET_CONFIGS: PlanetConfig[] = [
@@ -225,6 +227,31 @@ export const PLANET_CONFIGS: PlanetConfig[] = [
     visualRadius: 11.5,
     visualDistance: 1260,
     meanAnomalyJ2000Rad: 4.472,
+  },
+];
+
+// Pluto's fixed orbital elements use the JPL J2000 approximate values.
+export const DWARF_PLANET_CONFIGS: PlanetConfig[] = [
+  {
+    name: 'Pluto',
+    key: 'pluto',
+    mass: 1.303e22,
+    radius: 1.1883e6,
+    semiMajorAxis: 39.48211675 * EARTH.semiMajorAxis,
+    eccentricity: 0.24882730,
+    orbitalPeriod: 90560 * 86400,
+    inclinationToEclipticRad: 17.14001206 * Math.PI / 180,
+    inclinationDeg: 17.14001206,
+    rotationPeriod: 6.38723 * 86400,
+    axialTiltRad: 119.61 * Math.PI / 180,
+    axialTiltDeg: 119.61,
+    color: 0xcdb394,
+    colorHex: '#cdb394',
+    visualRadius: 4.6,
+    visualDistance: 1650,
+    meanAnomalyJ2000Rad: (238.92903833 - 224.06891629) * Math.PI / 180,
+    argumentOfPerihelionRad: (224.06891629 - 110.30393684) * Math.PI / 180,
+    ascendingNodeRad: 110.30393684 * Math.PI / 180,
   },
 ];
 

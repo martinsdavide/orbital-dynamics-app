@@ -542,6 +542,56 @@ export function createNeptuneTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+// Stylized Pluto map with reddish terrain and the bright Tombaugh Regio.
+export function createPlutoTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const { width, height } = canvas;
+  const ctx = canvas.getContext('2d')!;
+  const surface = ctx.createImageData(width, height);
+
+  for (let y = 0; y < height; y++) {
+    const latitude = Math.PI * (0.5 - y / height);
+    const polarFrost = Math.abs(Math.sin(latitude)) ** 3;
+    for (let x = 0; x < width; x++) {
+      const longitude = x / width * 2 * Math.PI;
+      const relief = 0.52 * Math.sin(5 * longitude + 14 * latitude) +
+        0.29 * Math.sin(19 * longitude - 31 * latitude) + 0.19 * Math.cos(47 * longitude + 43 * latitude);
+      const darkBelt = (Math.cos(latitude + 0.28) ** 18) * (0.72 + 0.28 * Math.cos(2 * longitude));
+      const brightness = 17 * relief + 25 * polarFrost - 42 * darkBelt;
+      const index = 4 * (y * width + x);
+      surface.data[index] = 174 + brightness;
+      surface.data[index + 1] = 134 + brightness;
+      surface.data[index + 2] = 107 + brightness;
+      surface.data[index + 3] = 255;
+    }
+  }
+  ctx.putImageData(surface, 0, 0);
+
+  ctx.save();
+  ctx.scale(width, height);
+  ctx.beginPath();
+  ctx.moveTo(0.47, 0.62);
+  ctx.bezierCurveTo(0.43, 0.56, 0.37, 0.43, 0.39, 0.35);
+  ctx.bezierCurveTo(0.41, 0.28, 0.46, 0.28, 0.49, 0.37);
+  ctx.bezierCurveTo(0.53, 0.30, 0.60, 0.35, 0.60, 0.43);
+  ctx.bezierCurveTo(0.59, 0.51, 0.53, 0.56, 0.47, 0.62);
+  ctx.closePath();
+  const nitrogenIce = ctx.createLinearGradient(0.39, 0.36, 0.59, 0.53);
+  nitrogenIce.addColorStop(0, '#eadcc4');
+  nitrogenIce.addColorStop(0.45, '#ded0b8');
+  nitrogenIce.addColorStop(1, '#baa996');
+  ctx.fillStyle = nitrogenIce;
+  ctx.fill();
+  ctx.restore();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  return texture;
+}
+
 // Procedural 3D Billboard Planet Label Sprite
 export function createPlanetLabelTexture(name: string, colorHex: string): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');

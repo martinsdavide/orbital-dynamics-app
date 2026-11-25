@@ -32,7 +32,8 @@ export type PlanetKey =
   | 'jupiter'
   | 'saturn'
   | 'uranus'
-  | 'neptune';
+  | 'neptune'
+  | 'pluto';
 
 export interface PlanetState extends CelestialBodyState {
   key: PlanetKey;
@@ -53,6 +54,7 @@ export interface EphemerisState {
   earth: CelestialBodyState;
   moon: CelestialBodyState;
   planets: PlanetState[];
+  dwarfPlanets: PlanetState[];
   lagrangePoints: LagrangePoint[];
   earthPhaseAngle: number;
   moonPhaseAngle: number;
