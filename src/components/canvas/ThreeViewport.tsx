@@ -155,6 +155,7 @@ export type CameraPreset =
   | 'sun'
   | 'rocket'
   | 'rocket_closeup'
+  | 'booster'
   | 'launch_overview'
   | 'spaceport'
   | 'earthrise'
@@ -255,6 +256,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
   const launchVehicleRef = useRef<LaunchVehicle | null>(null);
   const closeupRef = useRef(false);
+  const followBoosterRef = useRef(false);
   const closeupZoomRef = useRef(1);
   const launchTimeRef = useRef(0);
   const exhaustParticlesRef = useRef<THREE.Points | null>(null);
@@ -1138,13 +1140,19 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
       if (closeupRef.current) {
         const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov / 2);
-        const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * camera.aspect);
+        const followBooster = followBoosterRef.current && launchVehicle.boosterFramingRadius > 0;
+        // Leave room for the launch console and telemetry on either side of the booster.
+        const framingWidth = followBooster ? 0.5 : 1;
+        const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * camera.aspect * framingWidth);
         const halfFov = Math.min(verticalHalfFov, horizontalHalfFov);
-        const zoom = THREE.MathUtils.lerp(closeupZoomRef.current, Math.max(1, closeupZoomRef.current), launchVehicle.separationWeight);
-        const distance = Math.max(0.12 * LAUNCH_MODEL_SCALE, launchVehicle.framingRadius / Math.sin(halfFov) * 1.12) * zoom;
-        camera.position.copy(launchVehicle.target).addScaledVector(launchVehicle.cameraDirection, distance);
+        const target = followBooster ? launchVehicle.boosterTarget : launchVehicle.target;
+        const radius = followBooster ? launchVehicle.boosterFramingRadius : launchVehicle.framingRadius;
+        const weight = followBooster ? 0 : launchVehicle.separationWeight;
+        const zoom = THREE.MathUtils.lerp(closeupZoomRef.current, Math.max(1, closeupZoomRef.current), weight);
+        const distance = Math.max(0.12 * LAUNCH_MODEL_SCALE, radius / Math.sin(halfFov) * 1.12) * zoom;
+        camera.position.copy(target).addScaledVector(launchVehicle.cameraDirection, distance);
         camera.up.copy(launchVehicle.cameraUp);
-        camera.lookAt(launchVehicle.target);
+        camera.lookAt(target);
       } else {
         if (launchpadCameraUpRef.current) camera.up.copy(launchpadCameraUpRef.current);
         else camera.up.set(0, 1, 0);
@@ -1604,7 +1612,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     const enteringLaunchOverview = launchOverview && !launchOverviewRef.current;
     launchOverviewRef.current = launchOverview;
     if (launchPaths) launchPaths.group.visible = appMode === 'launch';
-    const closeup = appMode === 'launch' && cameraPreset === 'rocket_closeup' && !!launchVehicle;
+    followBoosterRef.current = appMode === 'launch' && cameraPreset === 'booster';
+    const closeup = appMode === 'launch' && (cameraPreset === 'rocket_closeup' || followBoosterRef.current) && !!launchVehicle;
     if (closeup && (!closeupRef.current || rocketTelemetry.phase === 'pad' && launchTimeRef.current > 0)) {
       closeupZoomRef.current = 1;
     }
@@ -1984,7 +1993,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     <div
       ref={mountRef}
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-      className={`select-none overflow-hidden ${cameraPreset === 'rocket_closeup' ? '' : 'cursor-grab active:cursor-grabbing'}`}
+      className={`select-none overflow-hidden ${(cameraPreset === 'rocket_closeup' || cameraPreset === 'booster') ? '' : 'cursor-grab active:cursor-grabbing'}`}
     />
   );
 });

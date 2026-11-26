@@ -32,7 +32,11 @@ export interface RocketPreset {
 
 export type OrbitTargetPhase = 'ascent' | 'coast to apoapsis' | 'circularization' | 'target reached' | 'target missed';
 
+export type BoosterSeparation = Pick<RocketTelemetry,
+  'time' | 'altitude' | 'downrangeDistance' | 'verticalSpeed' | 'horizontalSpeed' | 'pitchAngle'>;
+
 export interface RocketTelemetry {
+  boosterSeparation?: BoosterSeparation;
   orbitTargetPhase?: OrbitTargetPhase;
   time: number; // seconds from launch
   altitude: number; // m

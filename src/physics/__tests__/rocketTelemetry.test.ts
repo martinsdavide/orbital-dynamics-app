@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ROCKET_PRESETS } from '../../data/rockets.ts';
 import { SPACEPORTS } from '../../data/spaceports.ts';
+import { BOOSTBACK_CUTOFF_SECONDS, BOOSTBACK_IGNITION_SECONDS, sampleBoosterReturn, SUPER_HEAVY_PRESET_ID } from '../boosterReturn.ts';
 import { EARTH, ISS_ORBIT_ALTITUDE } from '../constants.ts';
 import { calculateEarthCircularSpeed, calculateEarthEscapeSpeed, createPadTelemetry, KARMAN_LINE_ALTITUDE, simulateRocketAscentStep } from '../rocketDynamics.ts';
 
@@ -107,4 +108,38 @@ test('ISS-altitude guidance coasts to apoapsis and achieves a near-circular orbi
     assert.ok(Math.abs(telemetry.velocity - targetSpeed) < 10, rocket.name);
     assert.equal(step().thrust, 0, rocket.name);
   }
+});
+
+test('Super Heavy return starts from first-stage separation while the ship keeps flying', () => {
+  const rocket = ROCKET_PRESETS.find(preset => preset.id === SUPER_HEAVY_PRESET_ID)!;
+  const spaceport = SPACEPORTS.find(site => site.id === 'spacex_starbase')!;
+  const step = (telemetry: ReturnType<typeof createPadTelemetry>) =>
+    simulateRocketAscentStep({ timeSeconds: telemetry.time, dt: 0.1, rocket, spaceport, telemetry, userThrottle: 1, autoGuidance: true });
+  const pad = createPadTelemetry(rocket, spaceport);
+  let flight = step({ ...pad, phase: 'boost_stage1' });
+  for (let i = 0; i < 5000 && flight.activeStageIndex === 0; i++) flight = step(flight);
+
+  const separation = flight.boosterSeparation;
+  assert.ok(separation);
+  assert.equal(separation.time, flight.time);
+  assert.equal(separation.altitude, flight.altitude);
+  assert.equal(separation.downrangeDistance, flight.downrangeDistance);
+  const flip = sampleBoosterReturn(separation, 0);
+  const ignition = sampleBoosterReturn(separation, BOOSTBACK_IGNITION_SECONDS);
+  const cutoff = sampleBoosterReturn(separation, BOOSTBACK_CUTOFF_SECONDS);
+  assert.equal(flip.phase, 'Separation flip');
+  assert.equal(flip.pitchAngle, flight.pitchAngle);
+  assert.equal(ignition.phase, 'Boostback burn');
+  assert.equal(ignition.horizontalSpeed, flip.horizontalSpeed);
+  assert.ok(ignition.pitchAngle > 90);
+  assert.equal(cutoff.phase, 'Post-burn coast');
+  assert.ok(cutoff.horizontalSpeed < ignition.horizontalSpeed);
+  assert.equal(sampleBoosterReturn(separation, BOOSTBACK_CUTOFF_SECONDS + 1).horizontalSpeed, cutoff.horizontalSpeed);
+  assert.equal(sampleBoosterReturn(separation, 90).phase, 'Preview complete');
+
+  const continued = step(flight);
+  assert.equal(continued.boosterSeparation, separation);
+  assert.equal(continued.activeStageIndex, 1);
+  assert.ok(continued.thrust > 0);
+  assert.equal(pad.boosterSeparation, undefined);
 });

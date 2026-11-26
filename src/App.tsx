@@ -1,3 +1,4 @@
+import { SUPER_HEAVY_PRESET_ID } from './physics/boosterReturn';
 import { useState, useEffect, useRef } from 'react';
 import { ThreeViewport } from './components/canvas/ThreeViewport';
 import type { ActiveAppMode, CameraPreset, ThreeViewportHandle } from './components/canvas/ThreeViewport';
@@ -23,7 +24,7 @@ import { createPadTelemetry, simulateRocketAscentStep } from './physics/rocketDy
 import { solveEarthMoonTrajectory } from './physics/trajectorySolver';
 
 const DEFAULT_LAUNCH_SITE = SPACEPORTS.find(site => site.id === 'spacex_starbase')!;
-const DEFAULT_LAUNCH_ROCKET = ROCKET_PRESETS.find(rocket => rocket.id === 'starship_v3')!;
+const DEFAULT_LAUNCH_ROCKET = ROCKET_PRESETS.find(rocket => rocket.id === SUPER_HEAVY_PRESET_ID)!;
 
 export function App() {
   const viewportRef = useRef<ThreeViewportHandle>(null);
@@ -222,6 +223,7 @@ export function App() {
         appMode={appMode}
         onSelectMode={handleSelectMode}
         cameraPreset={cameraPreset}
+        supportsBoosterReturn={activeRocket.id === SUPER_HEAVY_PRESET_ID}
         onSelectCamera={preset => {
           if (preset === 'asteroid_belt') setShowAsteroidBelt(true);
           setCameraPreset(preset);
@@ -288,6 +290,7 @@ export function App() {
           activeRocket={activeRocket}
           onSelectRocket={rocket => {
             setActiveRocket(rocket);
+            if (cameraPreset === 'booster' && rocket.id !== SUPER_HEAVY_PRESET_ID) setCameraPreset('spaceport');
             setRocketTelemetry(createPadTelemetry(rocket, launchSpaceport));
           }}
           rocketTelemetry={rocketTelemetry}

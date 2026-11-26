@@ -8,6 +8,7 @@ interface HeaderProps {
   appMode: ActiveAppMode;
   onSelectMode: (mode: ActiveAppMode) => void;
   cameraPreset: CameraPreset;
+  supportsBoosterReturn: boolean;
   onSelectCamera: (preset: CameraPreset) => void;
   onOpenInfo: () => void;
   onOpenCharts: () => void;
@@ -20,6 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
   appMode,
   onSelectMode,
   cameraPreset,
+  supportsBoosterReturn,
   onSelectCamera,
   onOpenInfo,
   onOpenCharts,
@@ -134,6 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
               {appMode === 'launch' && (
                 <>
                   <option value="rocket_closeup" className="bg-gray-900">Rocket Close-up</option>
+                  {supportsBoosterReturn && <option value="booster" className="bg-gray-900">Follow Super Heavy</option>}
                   <option value="launch_overview" className="bg-gray-900">Launch Overview</option>
                 </>
               )}

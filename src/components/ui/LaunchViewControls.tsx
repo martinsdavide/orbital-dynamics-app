@@ -1,3 +1,4 @@
+import { sampleBoosterReturn, SUPER_HEAVY_PRESET_ID } from '../../physics/boosterReturn';
 import { ISS_ORBIT_ALTITUDE } from '../../physics/constants';
 import React, { useState } from 'react';
 import type { Spaceport } from '../../types/spaceport';
@@ -59,6 +60,8 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
   onToggleCollapse,
 }) => {
   const hasOrbitTarget = orbitTargetAltitude !== undefined;
+  const separation = rocketTelemetry.boosterSeparation;
+  const booster = separation && sampleBoosterReturn(separation, rocketTelemetry.time - separation.time);
   const isPad = rocketTelemetry.phase === 'pad';
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
@@ -99,6 +102,22 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
           <ChevronUp className="w-4 h-4" />
         </button>
       </div>
+
+      {activeRocket.id === SUPER_HEAVY_PRESET_ID && (
+        <section className="space-y-1.5 rounded-lg border border-amber-900/60 bg-amber-950/20 p-2.5 text-xs">
+          <h2 className="font-semibold text-amber-200">Super Heavy return preview</h2>
+          <p className="text-gray-300">{booster?.phase ?? 'Starts at first-stage separation'}</p>
+          {booster && (
+            <dl className="grid grid-cols-2 gap-1 font-mono text-[11px]">
+              <dt>Altitude</dt><dd>{(booster.altitude / 1000).toFixed(1)} km</dd>
+              <dt>Downrange</dt><dd>{(booster.downrangeDistance / 1000).toFixed(1)} km</dd>
+              <dt>Vertical speed</dt><dd>{booster.verticalSpeed.toFixed(0)} m/s</dd>
+              <dt>Along-track speed</dt><dd>{booster.horizontalSpeed.toFixed(0)} m/s</dd>
+              <dt>Pitch</dt><dd>{booster.pitchAngle.toFixed(0)}°</dd>
+            </dl>
+          )}
+        </section>
+      )}
 
       <div className="space-y-1.5">
         <label className="text-[11px] font-mono uppercase text-gray-400 flex items-center space-x-1.5">

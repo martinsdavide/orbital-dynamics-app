@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sampleBoosterReturn, SUPER_HEAVY_PRESET_ID } from '../../physics/boosterReturn';
 import { EARTH } from '../../physics/constants.ts';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 
@@ -27,9 +28,17 @@ export class LaunchVehicle {
   readonly target = new THREE.Vector3();
   readonly cameraDirection = new THREE.Vector3();
   readonly cameraUp = new THREE.Vector3();
+  readonly boosterTarget = new THREE.Vector3();
+  boosterFramingRadius = 0;
   framingRadius = 0;
   separationWeight = 0;
 
+  private readonly boosterTrail = new THREE.Line(
+    new THREE.BufferGeometry(),
+    new THREE.LineBasicMaterial({ color: 0xf4a65b, transparent: true, opacity: 0.8, depthWrite: false }),
+  );
+  private readonly plumeMaterial = new THREE.MeshBasicMaterial({ color: 0xffb472, transparent: true, opacity: 0.85 });
+  private boosterPlume?: THREE.Mesh;
   private readonly sections: Section[] = [];
   private readonly detached = new THREE.Group();
   private readonly hull = new THREE.MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.62 });
@@ -49,6 +58,7 @@ export class LaunchVehicle {
   private readonly activeCenter = new THREE.Vector3();
   private rocket?: RocketPreset;
   private lastTime = 0;
+  private boosterTrailTime = -1;
   private stageIndex = 0;
 
   constructor() {
@@ -56,6 +66,8 @@ export class LaunchVehicle {
     this.stand.scale.setScalar(LAUNCH_MODEL_SCALE);
     this.detached.name = 'Detached launch stages';
     this.group.add(this.exhaustMount);
+    this.boosterTrail.name = 'Super Heavy return trail';
+    this.boosterTrail.visible = false;
     const deck = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.008, 0.14), this.trim);
     deck.position.y = 0.004;
     this.stand.add(deck);
@@ -79,7 +91,7 @@ export class LaunchVehicle {
   }
 
   addTo(scene: THREE.Scene) {
-    scene.add(this.group, this.detached, this.stand);
+    scene.add(this.group, this.detached, this.stand, this.boosterTrail);
     this.setVisible(false);
   }
 
@@ -87,6 +99,7 @@ export class LaunchVehicle {
     this.group.visible = visible;
     this.detached.visible = visible;
     this.stand.visible = visible;
+    if (!visible) this.boosterTrail.visible = false;
   }
 
   private clearSections() {
@@ -97,6 +110,7 @@ export class LaunchVehicle {
       });
     }
     this.sections.length = 0;
+    this.boosterPlume = undefined;
   }
 
   dispose() {
@@ -107,6 +121,9 @@ export class LaunchVehicle {
     this.hull.dispose();
     this.trim.dispose();
     this.accent.dispose();
+    this.plumeMaterial.dispose();
+    this.boosterTrail.geometry.dispose();
+    this.boosterTrail.material.dispose();
   }
 
   private build(rocket: RocketPreset) {
@@ -142,6 +159,22 @@ export class LaunchVehicle {
           model.add(tip);
         }
 
+        if (rocket.id === SUPER_HEAVY_PRESET_ID && stageIndex === 0) {
+          for (let i = 0; i < 4; i++) {
+            const mount = new THREE.Group();
+            mount.rotation.y = i * Math.PI / 2;
+            const fin = new THREE.Mesh(new THREE.BoxGeometry(radius * 0.8, height * 0.045, radius * 0.7), this.trim);
+            fin.position.set(radius * 1.33, bodyHeight * 0.38, 0);
+            mount.add(fin);
+            model.add(mount);
+          }
+          this.boosterPlume = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.68, height * 0.52, 16), this.plumeMaterial);
+          this.boosterPlume.rotation.z = Math.PI;
+          this.boosterPlume.position.y = -bodyHeight / 2 - height * 0.24;
+          this.boosterPlume.visible = false;
+          model.add(this.boosterPlume);
+        }
+
         const coreRadius = rocket.diameter * scale * 0.5;
         const center = new THREE.Vector3(side * (coreRadius + radius * 1.15), base + bodyHeight / 2, 0);
         this.sections.push({
@@ -171,6 +204,20 @@ export class LaunchVehicle {
     this.stand.position.copy(pad).addScaledVector(up, 0.001 * LAUNCH_MODEL_SCALE);
     this.stand.quaternion.setFromRotationMatrix(this.orientation.makeBasis(lateral, up, east));
 
+    const separation = telemetry.boosterSeparation;
+    const booster = separation && sampleBoosterReturn(separation, telemetry.time - separation.time);
+    const earthCenter = pad.clone().addScaledVector(up, -earthRadius);
+    const placeBooster = (target: THREE.Vector3, altitude: number, downrangeDistance: number) => {
+      const angle = downrangeDistance / EARTH.radius;
+      const radius = earthRadius * (1 + altitude / EARTH.radius) + 0.009 * LAUNCH_MODEL_SCALE;
+      return target.copy(earthCenter)
+        .addScaledVector(up, radius * Math.cos(angle)).addScaledVector(east, radius * Math.sin(angle));
+    };
+    this.boosterTrail.visible = false;
+    if (reset) this.boosterTrailTime = -1;
+    this.boosterFramingRadius = 0;
+    if (this.boosterPlume) this.boosterPlume.visible = booster?.phase === 'Boostback burn';
+
     this.bounds.makeEmpty();
     this.separationWeight = 0;
     for (const section of this.sections) {
@@ -185,6 +232,31 @@ export class LaunchVehicle {
       }
 
       const age = section.separationTime === undefined ? 0 : telemetry.time - section.separationTime;
+      if (separation && booster && stageIndex === 0 && this.boosterPlume) {
+        if (model.parent !== this.detached) this.detached.add(model);
+        section.separationTime = separation.time;
+        const angle = booster.downrangeDistance / EARTH.radius;
+        const pitch = THREE.MathUtils.degToRad(booster.pitchAngle) - angle;
+        const attitude = this.forward.copy(up).multiplyScalar(Math.sin(pitch)).addScaledVector(east, Math.cos(pitch));
+        model.quaternion.setFromRotationMatrix(this.orientation.makeBasis(lateral, attitude, this.corner.crossVectors(lateral, attitude)));
+        placeBooster(model.position, booster.altitude, booster.downrangeDistance);
+        model.position.addScaledVector(attitude, center.y);
+        model.visible = booster.altitude > 0;
+        if (model.visible) {
+          this.boosterTarget.copy(model.position);
+          this.boosterFramingRadius = section.halfLength + section.width;
+        }
+        this.boosterTrail.visible = booster.elapsed > 0.25;
+        if (this.boosterTrail.visible && this.boosterTrailTime !== booster.elapsed) {
+          this.boosterTrailTime = booster.elapsed;
+          const points = Array.from({ length: 32 }, (_, index) => {
+            const point = sampleBoosterReturn(separation, booster.elapsed * index / 31);
+            return placeBooster(new THREE.Vector3(), point.altitude, point.downrangeDistance);
+          });
+          this.boosterTrail.geometry.setFromPoints(points).computeBoundingSphere();
+        }
+        continue;
+      }
       model.visible = stageIndex >= telemetry.activeStageIndex || (section.separationTime !== undefined && age < SEPARATION_DURATION);
       if (!model.visible) continue;
 

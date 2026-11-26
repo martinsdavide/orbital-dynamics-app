@@ -1,3 +1,4 @@
+import { SUPER_HEAVY_PRESET_ID } from './boosterReturn.ts';
 import { EARTH, ATMOSPHERE } from './constants.ts';
 import type { RocketPreset, RocketTelemetry } from '../types/rocket';
 import type { Spaceport } from '../types/spaceport';
@@ -303,6 +304,11 @@ export function simulateRocketAscentStep(input: RocketSimulationStepInput): Rock
 
   const nominalFuel = rocket.stages[activeStageIndex]?.fuelMass ?? 0;
   return {
+    boosterSeparation: telemetry.boosterSeparation ?? (
+      rocket.id === SUPER_HEAVY_PRESET_ID && telemetry.activeStageIndex === 0 && activeStageIndex === 1
+        ? { time, altitude, downrangeDistance, verticalSpeed, horizontalSpeed, pitchAngle }
+        : undefined
+    ),
     time,
     orbitTargetPhase,
     altitude: Math.max(0, altitude),
