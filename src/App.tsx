@@ -55,7 +55,8 @@ export function App() {
   const [scaleMode, setScaleMode] = useState<ScaleMode>('visual');
 
   // Orbit Line & Trail Toggles
-  const [showLagrangePoints, setShowLagrangePoints] = useState<boolean>(true);
+  const [showSunEarthLagrange, setShowSunEarthLagrange] = useState(true);
+  const [showEarthMoonLagrange, setShowEarthMoonLagrange] = useState<boolean>(true);
   const [showEarthOrbit, setShowEarthOrbit] = useState<boolean>(true);
   const [showMoonOrbit, setShowMoonOrbit] = useState<boolean>(true);
   const [showComposedMoonSunOrbit, setShowComposedMoonSunOrbit] = useState<boolean>(true);
@@ -195,7 +196,8 @@ export function App() {
         ephemeris={ephemeris}
         referenceFrame={referenceFrame}
         scaleMode={scaleMode}
-        showLagrangePoints={showLagrangePoints}
+        showSunEarthLagrange={showSunEarthLagrange}
+        showEarthMoonLagrange={showEarthMoonLagrange}
         showEarthOrbit={showEarthOrbit}
         showMoonOrbit={showMoonOrbit}
         showComposedMoonSunOrbit={showComposedMoonSunOrbit}
@@ -238,8 +240,10 @@ export function App() {
           onChangeFrame={setReferenceFrame}
           scaleMode={scaleMode}
           onChangeScale={setScaleMode}
-          showLagrangePoints={showLagrangePoints}
-          onToggleLagrange={() => setShowLagrangePoints(!showLagrangePoints)}
+          showEarthMoonLagrange={showEarthMoonLagrange}
+          onToggleEarthMoonLagrange={() => setShowEarthMoonLagrange(value => !value)}
+          showSunEarthLagrange={showSunEarthLagrange}
+          onToggleSunEarthLagrange={() => setShowSunEarthLagrange(value => !value)}
           showEarthOrbit={showEarthOrbit}
           onToggleEarthOrbit={() => setShowEarthOrbit(!showEarthOrbit)}
           showMoonOrbit={showMoonOrbit}

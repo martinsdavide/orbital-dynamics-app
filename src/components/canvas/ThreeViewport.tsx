@@ -6,14 +6,14 @@ import { LAUNCH_MODEL_SCALE, LaunchVehicle } from './LaunchVehicle';
 import { LaunchPaths } from './LaunchPaths';
 import { createAsteroidBelt } from './AsteroidBelt';
 import { ViewportBillboard } from './ViewportBillboard';
-import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey } from '../../types/celestial';
+import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey, LagrangePoint } from '../../types/celestial';
 import { calculatePlanetaryMoonPosition, PLANETARY_MOONS, type PlanetaryMoonKey } from '../../physics/planetaryMoons.ts';
 import type { Spaceport } from '../../types/spaceport';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
 import type { EarthMoonTrajectory } from '../../types/trajectory';
 import { SCALING, EARTH, MOON, SUN, PLANET_CONFIGS, DWARF_PLANET_CONFIGS, type PlanetConfig } from '../../physics/constants.ts';
 import { calculateLunarOrbitPoint } from '../../physics/nBodyIntegrator.ts';
-import { calculatePlanetOrbit, EARTH_ORBIT } from '../../physics/orbitalMechanics.ts';
+import { calculatePlanetOrbit, EARTH_ORBIT, LAGRANGE_POINT_NAMES } from '../../physics/orbitalMechanics.ts';
 import { getMoonOrbitScale, getPlanetDisplayRadius, getSolarSystemOffset, projectPlanet, samplePlanetOrbit } from './PlanetaryScene';
 import {
   createMoonTexture,
@@ -169,7 +169,8 @@ interface ThreeViewportProps {
   ephemeris: EphemerisState;
   referenceFrame: ReferenceFrame;
   scaleMode: ScaleMode;
-  showLagrangePoints: boolean;
+  showEarthMoonLagrange: boolean;
+  showSunEarthLagrange: boolean;
   showEarthOrbit: boolean;
   showMoonOrbit: boolean;
   showComposedMoonSunOrbit: boolean;
@@ -197,7 +198,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     ephemeris,
     referenceFrame,
     scaleMode,
-    showLagrangePoints,
+    showEarthMoonLagrange,
+    showSunEarthLagrange,
     showEarthOrbit,
     showMoonOrbit,
     showComposedMoonSunOrbit,
@@ -241,7 +243,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const earthOrbitLineRef = useRef<THREE.Line | null>(null);
   const moonOrbitLineRef = useRef<THREE.Line | null>(null);
   const composedMoonSunLineRef = useRef<THREE.Line | null>(null);
-  const lagrangeGroupRef = useRef<THREE.Group | null>(null);
+  const lagrangeGroupsRef = useRef<Record<LagrangePoint['system'], THREE.Group> | null>(null);
   const geocentricSolarOrbitLineRef = useRef<THREE.Line | null>(null);
   const earthUmbraShadowConeRef = useRef<THREE.Mesh | null>(null);
   const geoBeltLineRef = useRef<THREE.Line | null>(null);
@@ -608,44 +610,54 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     moonGroup.add(soiMesh);
     lunarSOIMeshRef.current = soiMesh;
 
-    // Lagrange Group
-    const lagrangeGroup = new THREE.Group();
-    scene.add(lagrangeGroup);
-    lagrangeGroupRef.current = lagrangeGroup;
+    const lagrangeGroups = { 'Earth-Moon': new THREE.Group(), 'Sun-Earth': new THREE.Group() };
+    lagrangeGroupsRef.current = lagrangeGroups;
+    for (const [system, lagrangeGroup] of Object.entries(lagrangeGroups)) {
+      const sunEarth = system === 'Sun-Earth';
+      lagrangeGroup.name = system + ' Lagrange points';
+      scene.add(lagrangeGroup);
+      for (const lpName of LAGRANGE_POINT_NAMES) {
+        // The exaggerated Earth can cover nearby Sun–Earth points.
+        const nearEarth = sunEarth && (lpName === 'L1' || lpName === 'L2');
+        const lpMarker = new THREE.Group();
+        lpMarker.name = lpName;
+        const color = lpName === 'L4' || lpName === 'L5' ? '#10b981' : '#f59e0b';
 
-    const lPoints = ['L1', 'L2', 'L3', 'L4', 'L5'];
-    lPoints.forEach((lpName) => {
-      const lpMarker = new THREE.Group();
-      lpMarker.name = 'lagrange_' + lpName;
-      const color = lpName === 'L4' || lpName === 'L5' ? '#10b981' : '#f59e0b';
+        const markerGeo = new THREE.OctahedronGeometry(0.8, 0);
+        const markerMat = new THREE.MeshBasicMaterial({
+          color,
+          wireframe: true,
+          depthTest: !nearEarth,
+          depthWrite: !nearEarth,
+        });
+        const markerMesh = new THREE.Mesh(markerGeo, markerMat);
+        if (nearEarth) markerMesh.renderOrder = 2;
+        lpMarker.add(markerMesh);
 
-      const markerGeo = new THREE.OctahedronGeometry(0.8, 0);
-      const markerMat = new THREE.MeshBasicMaterial({
-        color,
-        wireframe: true,
-      });
-      const markerMesh = new THREE.Mesh(markerGeo, markerMat);
-      lpMarker.add(markerMesh);
+        const haloGeo = new THREE.RingGeometry(1.2, 1.6, 16);
+        const haloMat = new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.4,
+          side: THREE.DoubleSide,
+          depthTest: !nearEarth,
+          depthWrite: !nearEarth,
+        });
+        const haloMesh = new THREE.Mesh(haloGeo, haloMat);
+        haloMesh.rotation.x = Math.PI / 2;
+        lpMarker.add(haloMesh);
 
-      const haloGeo = new THREE.RingGeometry(1.2, 1.6, 16);
-      const haloMat = new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.4,
-        side: THREE.DoubleSide,
-      });
-      const haloMesh = new THREE.Mesh(haloGeo, haloMat);
-      haloMesh.rotation.x = Math.PI / 2;
-      lpMarker.add(haloMesh);
+        const texture = createPlanetLabelTexture(lpName, color, color, sunEarth ? 'circle' : 'square');
+        const label = new ViewportBillboard(texture, 23, false);
+        label.name = 'Lagrange point badge';
+        label.position.y = 0.8;
+        label.center.y = -0.18;
+        if (nearEarth) label.center.x = lpName === 'L1' ? 1.45 : -0.45;
+        lpMarker.add(label);
 
-      const label = new ViewportBillboard(createPlanetLabelTexture(lpName, color, color), 23, false);
-      label.name = 'Lagrange point badge';
-      label.position.y = 0.8;
-      label.center.y = -0.18;
-      lpMarker.add(label);
-
-      lagrangeGroup.add(lpMarker);
-    });
+        lagrangeGroup.add(lpMarker);
+      }
+    }
 
     // Planetary Systems: Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune
     planetRenderNodesRef.current.clear();
@@ -1236,15 +1248,17 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       earthLabelSprite.material.dispose();
       moonLabelTex.dispose();
       moonLabelSprite.material.dispose();
-      lagrangeGroup.traverse(object => {
-        if (object instanceof THREE.Sprite) {
-          object.material.map?.dispose();
-          object.material.dispose();
-        } else if (object instanceof THREE.Mesh) {
-          object.geometry.dispose();
-          (object.material as THREE.Material).dispose();
-        }
-      });
+      for (const group of Object.values(lagrangeGroups)) {
+        group.traverse(object => {
+          if (object instanceof THREE.Sprite) {
+            object.material.map?.dispose();
+            object.material.dispose();
+          } else if (object instanceof THREE.Mesh) {
+            object.geometry.dispose();
+            (object.material as THREE.Material).dispose();
+          }
+        });
+      }
       atmoGeo.dispose();
       atmoMat.dispose();
       axisGeo.dispose();
@@ -1609,23 +1623,23 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       orbit.visible = showPlanetaryOrbits;
     }
 
-    if (lagrangeGroupRef.current) {
-      lagrangeGroupRef.current.visible = showLagrangePoints && appMode === 'system';
-      ephemeris.lagrangePoints.forEach((lp) => {
-        const marker = lagrangeGroupRef.current?.getObjectByName('lagrange_' + lp.name);
-        if (marker) {
-          const label = marker.getObjectByName('Lagrange point badge');
-          if (label) label.visible = showPlanetLabels;
-          const dir = lp.position;
-          const mag = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) || 1;
-          const scaledMag = (mag / MOON.semiMajorAxis) * emDistScale;
-          marker.position.set(
-            currentEarthWorldPos.x + (dir.x / mag) * scaledMag,
-            currentEarthWorldPos.y + (dir.y / mag) * scaledMag,
-            currentEarthWorldPos.z + (dir.z / mag) * scaledMag
-          );
+    const lagrangeGroups = lagrangeGroupsRef.current;
+    if (lagrangeGroups) {
+      lagrangeGroups['Earth-Moon'].visible = showEarthMoonLagrange && appMode === 'system';
+      lagrangeGroups['Sun-Earth'].visible = showSunEarthLagrange && appMode === 'system';
+      for (const point of ephemeris.lagrangePoints) {
+        const marker = lagrangeGroups[point.system].getObjectByName(point.name);
+        if (!marker) continue;
+
+        const label = marker.getObjectByName('Lagrange point badge');
+        if (label) label.visible = showPlanetLabels;
+        const { x, y, z } = point.position;
+        if (point.system === 'Earth-Moon') {
+          marker.position.set(x, y, z).multiplyScalar(emDistScale / MOON.semiMajorAxis).add(currentEarthWorldPos);
+        } else {
+          marker.position.copy(projectPlanet(point.position, EARTH_ORBIT, scaleMode, sunDist)).add(sunWorldPos);
         }
-      });
+      }
     }
 
     const launchVehicle = launchVehicleRef.current;
@@ -1984,7 +1998,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     ephemeris,
     referenceFrame,
     scaleMode,
-    showLagrangePoints,
+    showEarthMoonLagrange,
+    showSunEarthLagrange,
     showEarthOrbit,
     showMoonOrbit,
     showComposedMoonSunOrbit,

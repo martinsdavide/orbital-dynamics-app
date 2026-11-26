@@ -60,6 +60,55 @@ export function calculatePlanetOrbit(planet: PlanetConfig, timeSeconds: number) 
 
 export const EARTH_ORBIT = PLANET_CONFIGS.find(planet => planet.key === 'earth')!;
 
+export const LAGRANGE_POINT_NAMES = ['L1', 'L2', 'L3', 'L4', 'L5'] as const;
+
+// Solve the collinear equilibria of the circular restricted three-body model.
+// The coordinate is in units of the pair's separation, measured from the primary.
+function collinearLagrangeFractions(primaryMass: number, secondaryMass: number) {
+  const mu = secondaryMass / (primaryMass + secondaryMass);
+  const force = (x: number) =>
+    x - mu - (1 - mu) * x / Math.abs(x) ** 3 - mu * (x - 1) / Math.abs(x - 1) ** 3;
+  const epsilon = 1e-6;
+  return [[epsilon, 1 - epsilon], [1 + epsilon, 3], [-3, -epsilon]].map(([low, high]) => {
+    for (let i = 0; i < 55; i++) {
+      const middle = (low + high) / 2;
+      if (force(middle) < 0) low = middle;
+      else high = middle;
+    }
+    return [(low + high) / 2, 0] as const;
+  });
+}
+
+const LAGRANGE_POSITIONS = {
+  'Earth-Moon': collinearLagrangeFractions(EARTH.mass, MOON.mass),
+  'Sun-Earth': collinearLagrangeFractions(SUN.mass, EARTH.mass),
+};
+
+const LAGRANGE_DESCRIPTIONS = [
+  'Between the two bodies', 'Beyond the secondary', 'Beyond the primary',
+  'Leading triangular equilibrium point', 'Trailing triangular equilibrium point',
+];
+
+function getLagrangePoints(relativePosition: Vector3D, relativeVelocity: Vector3D, system: LagrangePoint['system']): LagrangePoint[] {
+  const separation = magnitude(relativePosition);
+  const radial = normalize(relativePosition);
+  const orbitalPole = normalize(crossProduct(relativePosition, relativeVelocity));
+  const transverse = crossProduct(orbitalPole, radial);
+  const fractions = [...LAGRANGE_POSITIONS[system], [0.5, Math.sqrt(3) / 2], [0.5, -Math.sqrt(3) / 2]];
+
+  return LAGRANGE_POINT_NAMES.map((name, index) => {
+    const [x, y] = fractions[index];
+    return {
+      name, system, description: LAGRANGE_DESCRIPTIONS[index], isStable: index >= 3,
+      position: {
+        x: separation * (radial.x * x + transverse.x * y),
+        y: separation * (radial.y * x + transverse.y * y),
+        z: separation * (radial.z * x + transverse.z * y),
+      },
+    };
+  });
+}
+
 export function getEphemerisState(timeSeconds: number): EphemerisState {
   const earthOrbit = calculatePlanetOrbit(EARTH_ORBIT, timeSeconds);
 
@@ -113,57 +162,9 @@ export function getEphemerisState(timeSeconds: number): EphemerisState {
     rotationAngle: (timeSeconds / MOON.orbitalPeriod) * (2 * Math.PI),
   };
 
-  const muEM = MOON.mass / (EARTH.mass + MOON.mass);
-  const gamma = Math.pow(muEM / 3, 1 / 3);
-
-  const emDir = normalize(moonPosRelEarth);
-  const emDist = magnitude(moonPosRelEarth);
-
-  // Normal to Moon orbital plane in 3D: n = cross(r, v)
-  const emNormal = normalize(crossProduct(moonOrbitRel.position, moonOrbitRel.velocity));
-  const emTransverse = crossProduct(emNormal, emDir);
-
-  const rL1 = emDist * (1 - gamma);
-  const posL1: Vector3D = {
-    x: emDir.x * rL1,
-    y: emDir.y * rL1,
-    z: emDir.z * rL1,
-  };
-
-  const rL2 = emDist * (1 + gamma);
-  const posL2: Vector3D = {
-    x: emDir.x * rL2,
-    y: emDir.y * rL2,
-    z: emDir.z * rL2,
-  };
-
-  const rL3 = emDist * (1 + (5 / 12) * muEM);
-  const posL3: Vector3D = {
-    x: -emDir.x * rL3,
-    y: -emDir.y * rL3,
-    z: -emDir.z * rL3,
-  };
-
-  const cos60 = Math.cos(Math.PI / 3);
-  const sin60 = Math.sin(Math.PI / 3);
-  const posL4: Vector3D = {
-    x: emDist * (emDir.x * cos60 - emTransverse.x * sin60),
-    y: emDist * (emDir.y * cos60 - emTransverse.y * sin60),
-    z: emDist * (emDir.z * cos60 - emTransverse.z * sin60),
-  };
-
-  const posL5: Vector3D = {
-    x: emDist * (emDir.x * cos60 + emTransverse.x * sin60),
-    y: emDist * (emDir.y * cos60 + emTransverse.y * sin60),
-    z: emDist * (emDir.z * cos60 + emTransverse.z * sin60),
-  };
-
-  const lagrangePoints: LagrangePoint[] = [
-    { name: 'L1', description: 'Inter-body equilibrium point (cislunar gateway)', position: posL1, system: 'Earth-Moon', isStable: false },
-    { name: 'L2', description: 'Lunar farside balance point (farside comms)', position: posL2, system: 'Earth-Moon', isStable: false },
-    { name: 'L3', description: 'Anti-Earth equilibrium point', position: posL3, system: 'Earth-Moon', isStable: false },
-    { name: 'L4', description: 'Leading Trojan equilibrium point', position: posL4, system: 'Earth-Moon', isStable: true },
-    { name: 'L5', description: 'Trailing Trojan equilibrium point', position: posL5, system: 'Earth-Moon', isStable: true },
+  const lagrangePoints = [
+    ...getLagrangePoints(moonPosRelEarth, moonOrbitRel.velocity, 'Earth-Moon'),
+    ...getLagrangePoints(earthOrbit.position, earthOrbit.velocity, 'Sun-Earth'),
   ];
 
   const sunToEarth = normalize(earthState.position);

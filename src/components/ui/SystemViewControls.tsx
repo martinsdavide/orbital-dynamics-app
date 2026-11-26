@@ -7,8 +7,10 @@ interface SystemViewControlsProps {
   onChangeFrame: (frame: ReferenceFrame) => void;
   scaleMode: ScaleMode;
   onChangeScale: (scale: ScaleMode) => void;
-  showLagrangePoints: boolean;
-  onToggleLagrange: () => void;
+  showEarthMoonLagrange: boolean;
+  showSunEarthLagrange: boolean;
+  onToggleSunEarthLagrange: () => void;
+  onToggleEarthMoonLagrange: () => void;
   showEarthOrbit: boolean;
   onToggleEarthOrbit: () => void;
   showMoonOrbit: boolean;
@@ -45,8 +47,10 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   onChangeFrame,
   scaleMode,
   onChangeScale,
-  showLagrangePoints,
-  onToggleLagrange,
+  showEarthMoonLagrange,
+  showSunEarthLagrange,
+  onToggleSunEarthLagrange,
+  onToggleEarthMoonLagrange,
   showEarthOrbit,
   onToggleEarthOrbit,
   showMoonOrbit,
@@ -341,6 +345,22 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
           />
         </label>
 
+        <label className="flex items-center justify-between gap-2 cursor-pointer rounded-lg border border-gray-800/60 bg-gray-900/40 p-1.5 hover:bg-gray-900">
+          <span className="flex items-center gap-2">
+            <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full border border-gray-400" />
+            Sun–Earth Lagrange (L1–L5)
+          </span>
+          <input type="checkbox" checked={showSunEarthLagrange} onChange={onToggleSunEarthLagrange} className="h-4 w-4 cursor-pointer accent-blue-500" />
+        </label>
+
+        <label className="flex items-center justify-between gap-2 cursor-pointer rounded-lg border border-gray-800/60 bg-gray-900/40 p-1.5 hover:bg-gray-900">
+          <span className="flex items-center gap-2">
+            <span aria-hidden="true" className="h-2.5 w-2.5 border border-gray-400" />
+            Earth–Moon Lagrange (L1–L5)
+          </span>
+          <input type="checkbox" checked={showEarthMoonLagrange} onChange={onToggleEarthMoonLagrange} className="h-4 w-4 cursor-pointer accent-blue-500" />
+        </label>
+
         {/* Planet Telemetry Inspector */}
         {ephemeris.planets && ephemeris.planets.length > 0 && (
           <div className="p-2.5 rounded-xl bg-gray-900/80 border border-gray-800 space-y-2 font-mono">
@@ -410,16 +430,6 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
             checked={showMoonOrbit}
             onChange={onToggleMoonOrbit}
             className="w-4 h-4 rounded text-purple-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
-          />
-        </label>
-
-        <label className="flex items-center justify-between cursor-pointer group">
-          <span className="text-gray-300 group-hover:text-white">Earth-Moon Lagrange (L1-L5)</span>
-          <input
-            type="checkbox"
-            checked={showLagrangePoints}
-            onChange={onToggleLagrange}
-            className="w-4 h-4 rounded text-blue-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
           />
         </label>
 

@@ -821,7 +821,9 @@ export function createEuropaTexture(): THREE.CanvasTexture {
 }
 
 // Procedural 3D Billboard Planet Label Sprite
-export function createPlanetLabelTexture(name: string, colorHex: string, textColor = '#ffffff'): THREE.CanvasTexture {
+export function createPlanetLabelTexture(
+  name: string, colorHex: string, textColor = '#ffffff', shape: 'pill' | 'circle' | 'square' = 'pill',
+): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
@@ -833,7 +835,7 @@ export function createPlanetLabelTexture(name: string, colorHex: string, textCol
   const r = 18;
   const horizontalPadding = 15;
   ctx.font = font;
-  const w = Math.ceil(ctx.measureText(text).width) + horizontalPadding * 2;
+  const w = shape === 'pill' ? Math.ceil(ctx.measureText(text).width) + horizontalPadding * 2 : h;
   canvas.width = w + x * 2;
   ctx.font = font;
 
@@ -842,16 +844,22 @@ export function createPlanetLabelTexture(name: string, colorHex: string, textCol
   ctx.lineWidth = 3;
 
   ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
+  if (shape === 'circle') {
+    ctx.arc(x + w / 2, y + h / 2, h / 2, 0, Math.PI * 2);
+  } else if (shape === 'square') {
+    ctx.rect(x, y, w, h);
+  } else {
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
   ctx.fill();
   ctx.stroke();
 

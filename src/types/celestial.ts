@@ -19,6 +19,7 @@ export interface CelestialBodyState {
 export interface LagrangePoint {
   name: string;
   description: string;
+  /** Position in kilometers relative to this system’s primary body. */
   position: Vector3D;
   system: 'Earth-Moon' | 'Sun-Earth';
   isStable: boolean;
