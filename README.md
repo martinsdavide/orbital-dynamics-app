@@ -1,4 +1,4 @@
-# AstroSim: Sun-Earth-Moon Dynamics & Multi-Stage Rocket Trajectory Simulator
+# AstroSim: Solar System Dynamics & Rocket Trajectory Engine
 
 > **Interactive 3D Astrodynamics, Rocket Launch Dynamics, and Earth-to-Moon Trajectory Optimization Web Application** built with **React**, **Three.js / WebGL**, **TypeScript**, and **Tailwind CSS**. Optimized for seamless deployment on **Vercel** and **GitHub Pages**.
 

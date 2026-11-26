@@ -39,11 +39,11 @@ export const Header: React.FC<HeaderProps> = ({
               ASTROSIM
             </h1>
             <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/30">
-              v2.0
+              v2.1
             </span>
           </div>
           <p className="text-[11px] text-gray-400 font-mono hidden sm:block">
-            Sun-Earth-Moon Dynamics & Rocket Trajectory Engine
+            Solar System Dynamics & Rocket Trajectory Engine
           </p>
         </div>
       </div>
