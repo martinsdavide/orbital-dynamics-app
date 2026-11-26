@@ -176,7 +176,6 @@ interface ThreeViewportProps {
   showEarthOrbit: boolean;
   showMoonOrbit: boolean;
   showComposedMoonSunOrbit: boolean;
-  showDynamicTrails: boolean;
   showLunarSOI: boolean;
   showAtmosphereGlow: boolean;
   showGeocentricSolarOrbit: boolean;
@@ -205,7 +204,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     showEarthOrbit,
     showMoonOrbit,
     showComposedMoonSunOrbit,
-    showDynamicTrails,
     showLunarSOI,
     showAtmosphereGlow,
     showGeocentricSolarOrbit,
@@ -254,10 +252,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const lineOfNodesLineRef = useRef<THREE.Line | null>(null);
 
   // Dynamic Live Trail Breadcrumb Refs
-  const earthDynamicTrailLineRef = useRef<THREE.Line | null>(null);
-  const moonDynamicTrailLineRef = useRef<THREE.Line | null>(null);
-  const earthTrailPositionsRef = useRef<THREE.Vector3[]>([]);
-  const moonTrailPositionsRef = useRef<THREE.Vector3[]>([]);
 
   const launchVehicleRef = useRef<LaunchVehicle | null>(null);
   const closeupRef = useRef(false);
@@ -309,8 +303,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const trueScaleSystemRef = useRef(false);
   const launchpadCameraUpRef = useRef<THREE.Vector3 | null>(null);
   const cameraTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
-  const prevFrameRef = useRef<ReferenceFrame>(referenceFrame);
-  const prevAppModeRef = useRef<ActiveAppMode>(appMode);
 
   useImperativeHandle(
     ref,
@@ -939,29 +931,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     earthGroup.add(moonOrbitLine);
     moonOrbitLineRef.current = moonOrbitLine;
 
-    // 4. Live Dynamic Motion Breadcrumbs Trails
-    const earthTrailGeo = new THREE.BufferGeometry();
-    const earthTrailMat = new THREE.LineBasicMaterial({
-      color: 0x38bdf8,
-      transparent: true,
-      opacity: 0.85,
-      linewidth: 2,
-    });
-    const earthDynamicTrailLine = new THREE.Line(earthTrailGeo, earthTrailMat);
-    scene.add(earthDynamicTrailLine);
-    earthDynamicTrailLineRef.current = earthDynamicTrailLine;
-
-    const moonTrailGeo = new THREE.BufferGeometry();
-    const moonTrailMat = new THREE.LineBasicMaterial({
-      color: 0xf43f5e,
-      transparent: true,
-      opacity: 0.9,
-      linewidth: 2,
-    });
-    const moonDynamicTrailLine = new THREE.Line(moonTrailGeo, moonTrailMat);
-    scene.add(moonDynamicTrailLine);
-    moonDynamicTrailLineRef.current = moonDynamicTrailLine;
-
     const launchVehicle = new LaunchVehicle();
     launchVehicle.addTo(scene);
     launchVehicleRef.current = launchVehicle;
@@ -1488,14 +1457,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     sunLightRef.current?.position.copy(sunWorldPos);
     earthSunDirectionRef.current.subVectors(sunWorldPos, currentEarthWorldPos).normalize();
 
-    // Clear trail breadcrumbs when switching reference frames or app modes
-    if (prevFrameRef.current !== referenceFrame || prevAppModeRef.current !== appMode) {
-      prevFrameRef.current = referenceFrame;
-      prevAppModeRef.current = appMode;
-      earthTrailPositionsRef.current = [];
-      moonTrailPositionsRef.current = [];
-    }
-
     if (referenceFrame === 'heliocentric') {
       // Heliocentric orbit lines centered at Sun (0, 0, 0)
       if (earthOrbitLineRef.current) {
@@ -1557,27 +1518,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         lineOfNodesLineRef.current.geometry = new THREE.BufferGeometry().setFromPoints(nodePts);
         lineOfNodesLineRef.current.visible = showLineOfNodes && appMode === 'system';
       }
-    }
-
-    // Record Live Dynamic Motion Trails
-    if (showDynamicTrails && appMode === 'system') {
-      earthTrailPositionsRef.current.push(currentEarthWorldPos.clone());
-      moonTrailPositionsRef.current.push(currentMoonWorldPos.clone());
-
-      if (earthTrailPositionsRef.current.length > 500) earthTrailPositionsRef.current.shift();
-      if (moonTrailPositionsRef.current.length > 500) moonTrailPositionsRef.current.shift();
-
-      if (earthDynamicTrailLineRef.current && earthTrailPositionsRef.current.length > 2) {
-        earthDynamicTrailLineRef.current.geometry.setFromPoints(earthTrailPositionsRef.current);
-        earthDynamicTrailLineRef.current.visible = true;
-      }
-      if (moonDynamicTrailLineRef.current && moonTrailPositionsRef.current.length > 2) {
-        moonDynamicTrailLineRef.current.geometry.setFromPoints(moonTrailPositionsRef.current);
-        moonDynamicTrailLineRef.current.visible = true;
-      }
-    } else {
-      if (earthDynamicTrailLineRef.current) earthDynamicTrailLineRef.current.visible = false;
-      if (moonDynamicTrailLineRef.current) moonDynamicTrailLineRef.current.visible = false;
     }
 
     // Moon Orbit around Earth (purple)
@@ -2023,7 +1963,6 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     showEarthOrbit,
     showMoonOrbit,
     showComposedMoonSunOrbit,
-    showDynamicTrails,
     showLunarSOI,
     showAtmosphereGlow,
     showGeocentricSolarOrbit,

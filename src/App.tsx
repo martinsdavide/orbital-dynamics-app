@@ -61,7 +61,6 @@ export function App() {
   const [showEarthOrbit, setShowEarthOrbit] = useState<boolean>(true);
   const [showMoonOrbit, setShowMoonOrbit] = useState<boolean>(true);
   const [showComposedMoonSunOrbit, setShowComposedMoonSunOrbit] = useState<boolean>(true);
-  const [showDynamicTrails, setShowDynamicTrails] = useState<boolean>(true);
   const [showLunarSOI, setShowLunarSOI] = useState<boolean>(true);
   const [showAtmosphereGlow, setShowAtmosphereGlow] = useState<boolean>(true);
   const [showGeocentricSolarOrbit, setShowGeocentricSolarOrbit] = useState<boolean>(true);
@@ -202,7 +201,6 @@ export function App() {
         showEarthOrbit={showEarthOrbit}
         showMoonOrbit={showMoonOrbit}
         showComposedMoonSunOrbit={showComposedMoonSunOrbit}
-        showDynamicTrails={showDynamicTrails}
         showLunarSOI={showLunarSOI}
         showAtmosphereGlow={showAtmosphereGlow}
         showGeocentricSolarOrbit={showGeocentricSolarOrbit}
@@ -251,8 +249,6 @@ export function App() {
           onToggleMoonOrbit={() => setShowMoonOrbit(!showMoonOrbit)}
           showComposedMoonSunOrbit={showComposedMoonSunOrbit}
           onToggleComposedMoonSunOrbit={() => setShowComposedMoonSunOrbit(!showComposedMoonSunOrbit)}
-          showDynamicTrails={showDynamicTrails}
-          onToggleDynamicTrails={() => setShowDynamicTrails(!showDynamicTrails)}
           showLunarSOI={showLunarSOI}
           onToggleLunarSOI={() => setShowLunarSOI(!showLunarSOI)}
           showAtmosphereGlow={showAtmosphereGlow}

@@ -17,8 +17,6 @@ interface SystemViewControlsProps {
   onToggleMoonOrbit: () => void;
   showComposedMoonSunOrbit: boolean;
   onToggleComposedMoonSunOrbit: () => void;
-  showDynamicTrails: boolean;
-  onToggleDynamicTrails: () => void;
   showLunarSOI: boolean;
   onToggleLunarSOI: () => void;
   showAtmosphereGlow: boolean;
@@ -58,8 +56,6 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   onToggleMoonOrbit,
   showComposedMoonSunOrbit,
   onToggleComposedMoonSunOrbit,
-  showDynamicTrails,
-  onToggleDynamicTrails,
   showLunarSOI,
   onToggleLunarSOI,
   showAtmosphereGlow,
@@ -460,19 +456,6 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
             checked={showAtmosphereGlow}
             onChange={onToggleAtmosphere}
             className="w-4 h-4 rounded text-blue-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
-          />
-        </label>
-
-        <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
-          <span className="flex items-center space-x-2 text-emerald-300">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block shadow-sm shadow-emerald-400/50" />
-            <span>Live Motion Breadcrumbs</span>
-          </span>
-          <input
-            type="checkbox"
-            checked={showDynamicTrails}
-            onChange={onToggleDynamicTrails}
-            className="w-4 h-4 rounded text-emerald-600 focus:ring-0 focus:outline-none bg-gray-800 border-gray-700 cursor-pointer"
           />
         </label>
       </div>
