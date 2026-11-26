@@ -318,7 +318,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
         <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
           <span className="flex items-center space-x-2 text-cyan-200">
             <Eye className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Planet and Moon Name Badges</span>
+            <span>Name badges</span>
           </span>
           <input
             type="checkbox"

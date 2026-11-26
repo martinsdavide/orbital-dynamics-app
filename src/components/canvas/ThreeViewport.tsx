@@ -639,6 +639,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       lpMarker.add(haloMesh);
 
       const label = new ViewportBillboard(createPlanetLabelTexture(lpName, color, color), 23, false);
+      label.name = 'Lagrange point badge';
       label.position.y = 0.8;
       label.center.y = -0.18;
       lpMarker.add(label);
@@ -1613,6 +1614,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       ephemeris.lagrangePoints.forEach((lp) => {
         const marker = lagrangeGroupRef.current?.getObjectByName('lagrange_' + lp.name);
         if (marker) {
+          const label = marker.getObjectByName('Lagrange point badge');
+          if (label) label.visible = showPlanetLabels;
           const dir = lp.position;
           const mag = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z) || 1;
           const scaledMag = (mag / MOON.semiMajorAxis) * emDistScale;
