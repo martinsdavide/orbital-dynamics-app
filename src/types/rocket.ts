@@ -37,6 +37,7 @@ export type BoosterSeparation = Pick<RocketTelemetry,
 
 export interface RocketTelemetry {
   boosterSeparation?: BoosterSeparation;
+  boosterElapsedSeconds?: number;
   orbitTargetPhase?: OrbitTargetPhase;
   time: number; // seconds from launch
   altitude: number; // m

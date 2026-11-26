@@ -1,4 +1,4 @@
-import { sampleBoosterReturn, SUPER_HEAVY_PRESET_ID } from '../../physics/boosterReturn';
+import { type BoosterReturnSample, SUPER_HEAVY_PRESET_ID } from '../../physics/boosterReturn';
 import { ISS_ORBIT_ALTITUDE } from '../../physics/constants';
 import React, { useState } from 'react';
 import type { Spaceport } from '../../types/spaceport';
@@ -18,6 +18,9 @@ interface LaunchViewControlsProps {
   activeRocket: RocketPreset;
   onSelectRocket: (rocket: RocketPreset) => void;
   rocketTelemetry: RocketTelemetry;
+  booster?: BoosterReturnSample;
+  showBoosterInset: boolean;
+  onToggleBoosterInset: () => void;
   onLaunch: () => void;
   onAbort: () => void;
   isPlaying: boolean;
@@ -42,6 +45,9 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
   activeRocket,
   onSelectRocket,
   rocketTelemetry,
+  booster,
+  showBoosterInset,
+  onToggleBoosterInset,
   onLaunch,
   onAbort,
   isPlaying,
@@ -60,8 +66,6 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
   onToggleCollapse,
 }) => {
   const hasOrbitTarget = orbitTargetAltitude !== undefined;
-  const separation = rocketTelemetry.boosterSeparation;
-  const booster = separation && sampleBoosterReturn(separation, rocketTelemetry.time - separation.time);
   const isPad = rocketTelemetry.phase === 'pad';
   const [internalCollapsed, setInternalCollapsed] = useState(false);
   const collapsed = isCollapsed !== undefined ? isCollapsed : internalCollapsed;
@@ -105,7 +109,11 @@ export const LaunchViewControls: React.FC<LaunchViewControlsProps> = ({
 
       {activeRocket.id === SUPER_HEAVY_PRESET_ID && (
         <section className="space-y-1.5 rounded-lg border border-amber-900/60 bg-amber-950/20 p-2.5 text-xs">
-          <h2 className="font-semibold text-amber-200">Super Heavy return preview</h2>
+          <h2 className="font-semibold text-amber-200">Super Heavy return</h2>
+          <label className="flex items-center justify-between gap-2">
+            Show booster camera inset
+            <input type="checkbox" checked={showBoosterInset} onChange={onToggleBoosterInset} className="accent-amber-400" />
+          </label>
           <p className="text-gray-300">{booster?.phase ?? 'Starts at first-stage separation'}</p>
           {booster && (
             <dl className="grid grid-cols-2 gap-1 font-mono text-[11px]">

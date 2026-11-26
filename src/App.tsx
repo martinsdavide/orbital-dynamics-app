@@ -1,5 +1,5 @@
-import { SUPER_HEAVY_PRESET_ID } from './physics/boosterReturn';
-import { useState, useEffect, useRef } from 'react';
+import { boosterReturnElapsed, createBoosterReturn, SUPER_HEAVY_PRESET_ID } from './physics/boosterReturn';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { ThreeViewport } from './components/canvas/ThreeViewport';
 import type { ActiveAppMode, CameraPreset, ThreeViewportHandle } from './components/canvas/ThreeViewport';
 import { Header } from './components/ui/Header';
@@ -92,6 +92,13 @@ export function App() {
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
   const [isChartsOpen, setIsChartsOpen] = useState<boolean>(false);
 
+  const [showBoosterInset, setShowBoosterInset] = useState(true);
+  const separation = rocketTelemetry.boosterSeparation;
+  const boosterReturn = useMemo(() => separation ? createBoosterReturn(separation, launchSpaceport) : undefined,
+    [separation, launchSpaceport]);
+  const boosterElapsed = boosterReturnElapsed(rocketTelemetry);
+  const boosterSample = boosterReturn?.sample(boosterElapsed);
+  const boosterInFlight = boosterReturn !== undefined && boosterElapsed < boosterReturn.endTime;
   const ephemeris = getEphemerisState(simTimeSeconds);
 
   useEffect(() => {
@@ -117,7 +124,7 @@ export function App() {
         }
       }
 
-      if (appMode === 'launch' && isLaunchPlaying && rocketTelemetry.phase !== 'pad' && rocketTelemetry.phase !== 'abort') {
+      if (appMode === 'launch' && isLaunchPlaying && rocketTelemetry.phase !== 'pad' && (rocketTelemetry.phase !== 'abort' || boosterInFlight)) {
         const launchDt = realDt * launchRate;
         const steps = Math.max(1, Math.ceil(launchDt / 0.1));
         const dt = launchDt / steps;
@@ -145,7 +152,7 @@ export function App() {
 
     animFrame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrame);
-  }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, orbitTargetAltitude, rocketTelemetry.phase]);
+  }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, orbitTargetAltitude, rocketTelemetry.phase, boosterInFlight]);
 
   const handleSelectMode = (mode: ActiveAppMode) => {
     setAppMode(mode);
@@ -214,6 +221,9 @@ export function App() {
         selectedSpaceport={selectedSpaceport}
         activeRocket={activeRocket}
         rocketTelemetry={rocketTelemetry}
+        boosterReturn={boosterReturn}
+        showBoosterInset={showBoosterInset && !isDecluttered}
+        boosterPhase={boosterSample?.phase}
         activeTrajectory={activeTrajectory}
         cameraPreset={cameraPreset}
         trajectoryProgress={trajectoryProgress}
@@ -294,6 +304,9 @@ export function App() {
             setRocketTelemetry(createPadTelemetry(rocket, launchSpaceport));
           }}
           rocketTelemetry={rocketTelemetry}
+          booster={boosterSample}
+          showBoosterInset={showBoosterInset}
+          onToggleBoosterInset={() => setShowBoosterInset(value => !value)}
           onLaunch={handleLaunch}
           onAbort={handleAbort}
           isPlaying={isLaunchPlaying}

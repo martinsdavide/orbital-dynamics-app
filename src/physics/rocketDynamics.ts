@@ -1,4 +1,4 @@
-import { SUPER_HEAVY_PRESET_ID } from './boosterReturn.ts';
+import { boosterReturnElapsed, SUPER_HEAVY_PRESET_ID } from './boosterReturn.ts';
 import { EARTH, ATMOSPHERE } from './constants.ts';
 import type { RocketPreset, RocketTelemetry } from '../types/rocket';
 import type { Spaceport } from '../types/spaceport';
@@ -102,7 +102,11 @@ function polarStep(
 export function simulateRocketAscentStep(input: RocketSimulationStepInput): RocketTelemetry {
   const { dt, rocket, spaceport, telemetry, userThrottle, autoGuidance, manualPitchOverride, orbitTargetAltitude } = input;
 
-  if (telemetry.phase === 'abort') return telemetry;
+  if (telemetry.phase === 'abort') {
+    return telemetry.boosterSeparation
+      ? { ...telemetry, boosterElapsedSeconds: boosterReturnElapsed(telemetry) + dt }
+      : telemetry;
+  }
   if (telemetry.phase === 'pad') {
     const latRad = (spaceport.latitude * Math.PI) / 180;
     const vSurface = (2 * Math.PI * EARTH.radius * Math.cos(latRad)) / EARTH.rotationPeriod;

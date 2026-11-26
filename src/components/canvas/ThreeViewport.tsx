@@ -2,6 +2,7 @@ import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import earthSurfaceUrl from '../../assets/earth-surface.jpg';
 import ganymedeSurfaceUrl from '../../assets/ganymede-surface.webp';
+import { hasSuperHeavyCatchTower, type BoosterReturn } from '../../physics/boosterReturn';
 import { LAUNCH_MODEL_SCALE, LaunchVehicle } from './LaunchVehicle';
 import { LaunchPaths } from './LaunchPaths';
 import { createAsteroidBelt } from './AsteroidBelt';
@@ -189,6 +190,9 @@ interface ThreeViewportProps {
   selectedSpaceport: Spaceport;
   activeRocket: RocketPreset;
   rocketTelemetry: RocketTelemetry;
+  boosterReturn?: BoosterReturn;
+  showBoosterInset: boolean;
+  boosterPhase?: string;
   activeTrajectory: EarthMoonTrajectory | null;
   cameraPreset: CameraPreset;
   trajectoryProgress: number;
@@ -217,11 +221,15 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     selectedSpaceport,
     activeRocket,
     rocketTelemetry,
+    boosterReturn,
+    showBoosterInset,
+    boosterPhase,
     activeTrajectory,
     cameraPreset,
     trajectoryProgress,
   } = props;
   const mountRef = useRef<HTMLDivElement>(null);
+  const boosterInsetRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const halleyRef = useRef<ReturnType<typeof createHalleyComet> | null>(null);
   const asteroidBeltRef = useRef<ReturnType<typeof createAsteroidBelt> | null>(null);
@@ -377,6 +385,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     const height = mountRef.current.clientHeight || window.innerHeight || 800;
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, DEFAULT_CAMERA_FAR);
     cameraRef.current = camera;
+    const boosterCamera = new THREE.PerspectiveCamera(42, 16 / 9, 0.001, DEFAULT_CAMERA_FAR);
     camera.position.set(0, 100, 150);
 
     let renderer: THREE.WebGLRenderer;
@@ -1150,8 +1159,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         const weight = followBooster ? 0 : launchVehicle.separationWeight;
         const zoom = THREE.MathUtils.lerp(closeupZoomRef.current, Math.max(1, closeupZoomRef.current), weight);
         const distance = Math.max(0.12 * LAUNCH_MODEL_SCALE, radius / Math.sin(halfFov) * 1.12) * zoom;
-        camera.position.copy(target).addScaledVector(launchVehicle.cameraDirection, distance);
-        camera.up.copy(launchVehicle.cameraUp);
+        camera.position.copy(target).addScaledVector(followBooster ? launchVehicle.boosterCameraDirection : launchVehicle.cameraDirection, distance);
+        camera.up.copy(followBooster ? launchVehicle.boosterCameraUp : launchVehicle.cameraUp);
         camera.lookAt(target);
       } else {
         if (launchpadCameraUpRef.current) camera.up.copy(launchpadCameraUpRef.current);
@@ -1209,6 +1218,33 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       }
 
       renderer.render(scene, camera);
+
+      const inset = boosterInsetRef.current;
+      if (inset && launchVehicle.boosterFramingRadius > 0) {
+        const area = inset.getBoundingClientRect();
+        const canvas = renderer.domElement.getBoundingClientRect();
+        const x = Math.round(area.left - canvas.left);
+        const y = Math.round(canvas.bottom - area.bottom);
+        const w = Math.round(area.width);
+        const h = Math.round(area.height);
+        if (w <= 0 || h <= 0 || x < 0 || y < 0 || x + w > Math.ceil(canvas.width) || y + h > Math.ceil(canvas.height)) return;
+        const aspect = w / h;
+        if (boosterCamera.aspect !== aspect) {
+          boosterCamera.aspect = aspect;
+          boosterCamera.updateProjectionMatrix();
+        }
+        const distance = launchVehicle.boosterFramingRadius * 5.3 / Math.min(1, aspect);
+        boosterCamera.position.copy(launchVehicle.boosterTarget).addScaledVector(launchVehicle.boosterCameraDirection, distance);
+        boosterCamera.up.copy(launchVehicle.boosterCameraUp);
+        boosterCamera.lookAt(launchVehicle.boosterTarget);
+
+        renderer.setViewport(x, y, w, h);
+        renderer.setScissor(x, y, w, h);
+        renderer.setScissorTest(true);
+        renderer.render(scene, boosterCamera);
+        renderer.setScissorTest(false);
+        renderer.setViewport(0, 0, canvas.width, canvas.height);
+      }
     };
     animate();
 
@@ -1660,7 +1696,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           eastTangent.set(1, 0, 0);
         }
 
-        launchVehicle.update(activeRocket, rocketTelemetry, padWorldPos, upNormal, eastTangent, scales.earthRadius);
+        launchVehicle.update(activeRocket, rocketTelemetry, padWorldPos, upNormal, eastTangent, scales.earthRadius,
+          boosterReturn, hasSuperHeavyCatchTower(selectedSpaceport));
         launchPaths?.update(earthWorldCenter, scales.earthRadius, rocketTelemetry, launchVehicle.group.position, upNormal);
         launchTimeRef.current = rocketTelemetry.time;
 
@@ -1984,17 +2021,32 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     selectedSpaceport,
     activeRocket,
     rocketTelemetry,
+    boosterReturn,
     activeTrajectory,
     cameraPreset,
     trajectoryProgress,
   ]);
 
   return (
-    <div
-      ref={mountRef}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-      className={`select-none overflow-hidden ${(cameraPreset === 'rocket_closeup' || cameraPreset === 'booster') ? '' : 'cursor-grab active:cursor-grabbing'}`}
-    />
+    <>
+      <div
+        ref={mountRef}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+        className={`select-none overflow-hidden ${(cameraPreset === 'rocket_closeup' || cameraPreset === 'booster') ? '' : 'cursor-grab active:cursor-grabbing'}`}
+      />
+      {showBoosterInset && appMode === 'launch' && boosterPhase && cameraPreset !== 'booster' && (
+        <figure
+          aria-label="Super Heavy tracking camera"
+          className="pointer-events-none absolute bottom-5 left-1/2 z-[21] w-[min(70vw,22rem)] -translate-x-1/2 overflow-hidden rounded-lg border border-amber-500/60 shadow-xl"
+        >
+          <figcaption className="flex flex-wrap justify-between gap-x-3 bg-gray-950 px-2.5 py-1.5 text-xs text-amber-200">
+            <span className="font-semibold">Super Heavy</span>
+            <span>{boosterPhase}</span>
+          </figcaption>
+          <div ref={boosterInsetRef} className="aspect-video" />
+        </figure>
+      )}
+    </>
   );
 });
 

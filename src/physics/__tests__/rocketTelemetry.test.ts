@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ROCKET_PRESETS } from '../../data/rockets.ts';
 import { SPACEPORTS } from '../../data/spaceports.ts';
-import { BOOSTBACK_CUTOFF_SECONDS, BOOSTBACK_IGNITION_SECONDS, sampleBoosterReturn, SUPER_HEAVY_PRESET_ID } from '../boosterReturn.ts';
+import { BOOSTBACK_CUTOFF_SECONDS, BOOSTBACK_IGNITION_SECONDS, boosterReturnElapsed, createBoosterReturn, SUPER_HEAVY_PRESET_ID } from '../boosterReturn.ts';
 import { EARTH, ISS_ORBIT_ALTITUDE } from '../constants.ts';
 import { calculateEarthCircularSpeed, calculateEarthEscapeSpeed, createPadTelemetry, KARMAN_LINE_ALTITUDE, simulateRocketAscentStep } from '../rocketDynamics.ts';
 
@@ -124,9 +124,10 @@ test('Super Heavy return starts from first-stage separation while the ship keeps
   assert.equal(separation.time, flight.time);
   assert.equal(separation.altitude, flight.altitude);
   assert.equal(separation.downrangeDistance, flight.downrangeDistance);
-  const flip = sampleBoosterReturn(separation, 0);
-  const ignition = sampleBoosterReturn(separation, BOOSTBACK_IGNITION_SECONDS);
-  const cutoff = sampleBoosterReturn(separation, BOOSTBACK_CUTOFF_SECONDS);
+  const profile = createBoosterReturn(separation, spaceport);
+  const flip = profile.sample(0);
+  const ignition = profile.sample(BOOSTBACK_IGNITION_SECONDS);
+  const cutoff = profile.sample(BOOSTBACK_CUTOFF_SECONDS);
   assert.equal(flip.phase, 'Separation flip');
   assert.equal(flip.pitchAngle, flight.pitchAngle);
   assert.equal(ignition.phase, 'Boostback burn');
@@ -134,8 +135,44 @@ test('Super Heavy return starts from first-stage separation while the ship keeps
   assert.ok(ignition.pitchAngle > 90);
   assert.equal(cutoff.phase, 'Post-burn coast');
   assert.ok(cutoff.horizontalSpeed < ignition.horizontalSpeed);
-  assert.equal(sampleBoosterReturn(separation, BOOSTBACK_CUTOFF_SECONDS + 1).horizontalSpeed, cutoff.horizontalSpeed);
-  assert.equal(sampleBoosterReturn(separation, 90).phase, 'Preview complete');
+  assert.equal(profile.sample(BOOSTBACK_CUTOFF_SECONDS + 1).horizontalSpeed, cutoff.horizontalSpeed);
+  const entry = profile.sample(profile.entryTime);
+  const landing = profile.sample(profile.landingTime);
+  const catchResult = profile.sample(profile.endTime + 1);
+  assert.equal(entry.phase, 'Atmospheric descent');
+  assert.ok(entry.verticalSpeed < 0 && entry.altitude > landing.altitude);
+  assert.equal(landing.phase, 'Landing burn');
+  assert.ok(landing.engineOn);
+  assert.equal(catchResult.phase, 'Tower catch');
+  assert.equal(catchResult.altitude, spaceport.elevation + 45);
+  assert.equal(catchResult.downrangeDistance, 0);
+  assert.equal(catchResult.verticalSpeed, 0);
+  assert.equal(catchResult.horizontalSpeed, 0);
+  assert.equal(catchResult.engineOn, false);
+
+  for (const boundary of [profile.entryTime, profile.landingTime, profile.endTime]) {
+    const before = profile.sample(boundary - 0.00001);
+    const after = profile.sample(boundary);
+    assert.ok(Math.abs(after.altitude - before.altitude) < 0.03);
+    assert.ok(Math.abs(after.verticalSpeed - before.verticalSpeed) < 0.03);
+  }
+  let lastAltitude = entry.altitude;
+  for (let time = profile.entryTime + 1; time <= profile.endTime; time++) {
+    const sample = profile.sample(time);
+    assert.ok(sample.altitude <= lastAltitude && sample.altitude >= spaceport.elevation);
+    lastAltitude = sample.altitude;
+  }
+
+  const otherSite = SPACEPORTS.find(site => site.id === 'ksc')!;
+  const offsite = createBoosterReturn(separation, otherSite);
+  const missed = offsite.sample(offsite.endTime);
+  assert.equal(missed.phase, 'Recovery missed');
+  assert.ok(missed.downrangeDistance > 0);
+  assert.equal(missed.altitude, otherSite.elevation);
+
+  const aborted = step({ ...flight, phase: 'abort' });
+  assert.equal(aborted.time, flight.time);
+  assert.equal(boosterReturnElapsed(aborted), 0.1);
 
   const continued = step(flight);
   assert.equal(continued.boosterSeparation, separation);
