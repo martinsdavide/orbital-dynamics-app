@@ -127,6 +127,21 @@ function getAsteroidBeltCameraRadius(mode: ScaleMode, aspect: number) {
   return (mode === 'true' ? getScalingConfig(mode).sunEarthDistance * 10.8 : 1800) / Math.min(1, aspect);
 }
 
+const DEFAULT_MAX_CAMERA_DISTANCE = 35_000;
+const DEFAULT_CAMERA_FAR = 100_000;
+const OUTERMOST_ORBIT_AU = Math.max(...[...PLANET_CONFIGS, ...DWARF_PLANET_CONFIGS].map(
+  body => body.semiMajorAxis * (1 + body.eccentricity) / EARTH.semiMajorAxis,
+));
+
+function getTrueScaleCameraDistances(camera: THREE.PerspectiveCamera) {
+  // Leave room for the outer orbit and the offset of an Earth-centered view.
+  const extent = (OUTERMOST_ORBIT_AU + 1.1) * getScalingConfig('true').sunEarthDistance;
+  const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+  const halfFov = Math.min(verticalHalfFov, Math.atan(Math.tan(verticalHalfFov) * camera.aspect));
+  const fit = extent * 1.08 / Math.sin(halfFov);
+  return { fit, maxDistance: fit * 1.85, far: fit * 1.85 + extent * 1.2 };
+}
+
 const MAX_TRAIL_POINTS = 4000;
 
 export type CameraPreset =
@@ -284,6 +299,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   const prevMousePosRef = useRef({ x: 0, y: 0 });
   const cameraSphericalRef = useRef({ radius: 140, theta: Math.PI / 4, phi: Math.PI / 3 });
   const targetRadiusRef = useRef(140);
+  const maxCameraDistanceRef = useRef(DEFAULT_MAX_CAMERA_DISTANCE);
+  const trueScaleSystemRef = useRef(false);
   const launchpadCameraUpRef = useRef<THREE.Vector3 | null>(null);
   const cameraTargetRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
   const prevFrameRef = useRef<ReferenceFrame>(referenceFrame);
@@ -304,7 +321,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           closeupZoomRef.current = Math.min(3, closeupZoomRef.current * factor);
           return;
         }
-        targetRadiusRef.current = Math.min(35000, targetRadiusRef.current * factor);
+        targetRadiusRef.current = Math.min(maxCameraDistanceRef.current, targetRadiusRef.current * factor);
       },
       resetZoom: () => {
         if (closeupRef.current) {
@@ -335,7 +352,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         else if (dwarf) defaultRadius = scaleMode === 'true' ? 5 : dwarf.visualRadius * 2.8;
         else if (cameraPreset === 'neptune') defaultRadius = scaleMode === 'true' ? 35 : 30;
         else if (moon) defaultRadius = Math.max(2, moon.radius * 5);
-        else if (scaleMode === 'true') defaultRadius = scales.earthMoonDistance * 0.75;
+        else if (appMode === 'system' && scaleMode === 'true' && cameraRef.current) {
+          defaultRadius = getTrueScaleCameraDistances(cameraRef.current).fit;
+        } else if (scaleMode === 'true') defaultRadius = scales.earthMoonDistance * 0.75;
 
         targetRadiusRef.current = defaultRadius;
       },
@@ -356,7 +375,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     const width = mountRef.current.clientWidth || window.innerWidth || 1200;
     const height = mountRef.current.clientHeight || window.innerHeight || 800;
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100000);
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, DEFAULT_CAMERA_FAR);
     cameraRef.current = camera;
     camera.position.set(0, 100, 150);
 
@@ -1071,7 +1090,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       }
       targetRadiusRef.current = Math.max(
         launchpadCameraUpRef.current ? LAUNCHPAD_MIN_CAMERA_DISTANCE : 1.5,
-        Math.min(35000, targetRadiusRef.current * zoomFactor)
+        Math.min(maxCameraDistanceRef.current, targetRadiusRef.current * zoomFactor)
       );
     };
 
@@ -1086,8 +1105,15 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       const w = mountRef.current.clientWidth || window.innerWidth || 800;
       const h = mountRef.current.clientHeight || window.innerHeight || 600;
       viewportHeight = h;
-      cameraRef.current.aspect = w / h;
-      cameraRef.current.updateProjectionMatrix();
+      const camera = cameraRef.current;
+      camera.aspect = w / h;
+      if (trueScaleSystemRef.current) {
+        const { maxDistance, far } = getTrueScaleCameraDistances(camera);
+        maxCameraDistanceRef.current = maxDistance;
+        camera.far = far;
+        targetRadiusRef.current = Math.min(targetRadiusRef.current, maxDistance);
+      }
+      camera.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
     };
 
@@ -1131,6 +1157,14 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         camera.position.y = target.y + radius * Math.cos(phi);
         camera.position.z = target.z + radius * Math.sin(phi) * Math.cos(theta);
         camera.lookAt(target);
+      }
+
+      if (trueScaleSystemRef.current) {
+        const near = Math.max(0.1, cameraSphericalRef.current.radius / 10_000);
+        if (camera.near !== near) {
+          camera.near = near;
+          camera.updateProjectionMatrix();
+        }
       }
 
       if (launchpadGroup.visible) {
@@ -1566,8 +1600,15 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     if (!launchpadCamera) launchpadCameraUpRef.current = null;
     const near = closeup || launchpadCamera ? 0.003 : 0.1;
     const camera = cameraRef.current;
-    if (camera && camera.near !== near) {
+    const trueScaleSystem = appMode === 'system' && scaleMode === 'true';
+    if (camera && (trueScaleSystemRef.current !== trueScaleSystem || (!trueScaleSystem && camera.near !== near))) {
+      trueScaleSystemRef.current = trueScaleSystem;
+      const distances = trueScaleSystem ? getTrueScaleCameraDistances(camera) : undefined;
+      maxCameraDistanceRef.current = distances?.maxDistance ?? DEFAULT_MAX_CAMERA_DISTANCE;
+      targetRadiusRef.current = Math.min(targetRadiusRef.current, maxCameraDistanceRef.current);
+      cameraSphericalRef.current.radius = Math.min(cameraSphericalRef.current.radius, maxCameraDistanceRef.current);
       camera.near = near;
+      camera.far = distances?.far ?? DEFAULT_CAMERA_FAR;
       camera.updateProjectionMatrix();
     }
     launchVehicle?.setVisible(appMode === 'launch');
