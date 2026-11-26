@@ -294,6 +294,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     radius: number;
   }>());
   const earthLabelSpriteRef = useRef<THREE.Sprite | null>(null);
+  const moonLabelSpriteRef = useRef<THREE.Sprite | null>(null);
 
   const isDraggingRef = useRef(false);
   const prevMousePosRef = useRef({ x: 0, y: 0 });
@@ -588,6 +589,14 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     moonGroup.add(moonMesh);
     moonMeshRef.current = moonMesh;
 
+    const moonLabelTex = createPlanetLabelTexture('Moon', '#c8c8c8');
+    const moonLabelSprite = new ViewportBillboard(moonLabelTex, PLANET_BADGE_HEIGHT, false);
+    moonLabelSprite.name = 'Moon name badge';
+    moonLabelSprite.position.y = SCALING.visual.moonRadius;
+    moonLabelSprite.center.y = -0.18;
+    moonGroup.add(moonLabelSprite);
+    moonLabelSpriteRef.current = moonLabelSprite;
+
     const soiGeo = new THREE.SphereGeometry(SCALING.visual.moonRadius * 4.5, 24, 24);
     const soiMat = new THREE.MeshBasicMaterial({
       color: 0x9333ea,
@@ -608,10 +617,11 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     lPoints.forEach((lpName) => {
       const lpMarker = new THREE.Group();
       lpMarker.name = 'lagrange_' + lpName;
+      const color = lpName === 'L4' || lpName === 'L5' ? '#10b981' : '#f59e0b';
 
       const markerGeo = new THREE.OctahedronGeometry(0.8, 0);
       const markerMat = new THREE.MeshBasicMaterial({
-        color: lpName === 'L4' || lpName === 'L5' ? 0x10b981 : 0xf59e0b,
+        color,
         wireframe: true,
       });
       const markerMesh = new THREE.Mesh(markerGeo, markerMat);
@@ -619,7 +629,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
       const haloGeo = new THREE.RingGeometry(1.2, 1.6, 16);
       const haloMat = new THREE.MeshBasicMaterial({
-        color: lpName === 'L4' || lpName === 'L5' ? 0x10b981 : 0xf59e0b,
+        color,
         transparent: true,
         opacity: 0.4,
         side: THREE.DoubleSide,
@@ -627,6 +637,11 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       const haloMesh = new THREE.Mesh(haloGeo, haloMat);
       haloMesh.rotation.x = Math.PI / 2;
       lpMarker.add(haloMesh);
+
+      const label = new ViewportBillboard(createPlanetLabelTexture(lpName, color, color), 23, false);
+      label.position.y = 0.8;
+      label.center.y = -0.18;
+      lpMarker.add(label);
 
       lagrangeGroup.add(lpMarker);
     });
@@ -1218,6 +1233,17 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       earthMat.dispose();
       earthLabelTex.dispose();
       earthLabelSprite.material.dispose();
+      moonLabelTex.dispose();
+      moonLabelSprite.material.dispose();
+      lagrangeGroup.traverse(object => {
+        if (object instanceof THREE.Sprite) {
+          object.material.map?.dispose();
+          object.material.dispose();
+        } else if (object instanceof THREE.Mesh) {
+          object.geometry.dispose();
+          (object.material as THREE.Material).dispose();
+        }
+      });
       atmoGeo.dispose();
       atmoMat.dispose();
       axisGeo.dispose();
@@ -1278,8 +1304,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   }, [selectedSpaceport]);
 
   useEffect(() => {
-    const { earthRadius, sunEarthDistance } = getScalingConfig(scaleMode);
+    const { earthRadius, moonRadius, sunEarthDistance } = getScalingConfig(scaleMode);
     if (earthLabelSpriteRef.current) earthLabelSpriteRef.current.position.y = earthRadius;
+    if (moonLabelSpriteRef.current) moonLabelSpriteRef.current.position.y = moonRadius;
     const earthOrbit = samplePlanetOrbit(EARTH_ORBIT, scaleMode, sunEarthDistance);
     if (earthOrbitLineRef.current) {
       earthOrbitLineRef.current.geometry.setFromPoints(earthOrbit).computeBoundingSphere();
@@ -1538,6 +1565,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     if (lunarSOIMeshRef.current) {
       lunarSOIMeshRef.current.visible = showLunarSOI;
     }
+
+    if (moonLabelSpriteRef.current) moonLabelSpriteRef.current.visible = showPlanetLabels && appMode === 'system';
 
     // Update planetary positions in current reference frame
     if (ephemeris.planets) {

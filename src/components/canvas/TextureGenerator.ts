@@ -821,7 +821,7 @@ export function createEuropaTexture(): THREE.CanvasTexture {
 }
 
 // Procedural 3D Billboard Planet Label Sprite
-export function createPlanetLabelTexture(name: string, colorHex: string): THREE.CanvasTexture {
+export function createPlanetLabelTexture(name: string, colorHex: string, textColor = '#ffffff'): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
@@ -831,10 +831,9 @@ export function createPlanetLabelTexture(name: string, colorHex: string): THREE.
   const y = 8;
   const h = 48;
   const r = 18;
-  const textOffset = 36;
-  const rightPadding = 14;
+  const horizontalPadding = 15;
   ctx.font = font;
-  const w = textOffset + Math.ceil(ctx.measureText(text).width) + rightPadding;
+  const w = Math.ceil(ctx.measureText(text).width) + horizontalPadding * 2;
   canvas.width = w + x * 2;
   ctx.font = font;
 
@@ -856,17 +855,10 @@ export function createPlanetLabelTexture(name: string, colorHex: string): THREE.
   ctx.fill();
   ctx.stroke();
 
-  // Color dot indicator
-  ctx.fillStyle = colorHex;
-  ctx.beginPath();
-  ctx.arc(x + 19, y + h / 2, 6, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Planet Name
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'left';
+  ctx.fillStyle = textColor;
+  ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, x + textOffset, y + h / 2 + 1);
+  ctx.fillText(text, x + w / 2, y + h / 2 + 1);
 
   const texture = new THREE.CanvasTexture(canvas);
   return texture;
