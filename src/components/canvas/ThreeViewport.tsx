@@ -1,6 +1,7 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import * as THREE from 'three';
 import earthSurfaceUrl from '../../assets/earth-surface.jpg';
+import ioSurfaceUrl from '../../assets/io-surface.webp';
 import ganymedeSurfaceUrl from '../../assets/ganymede-surface.webp';
 import { hasSuperHeavyCatchTower, type BoosterReturn } from '../../physics/boosterReturn';
 import { LAUNCH_MODEL_SCALE, LaunchVehicle } from './LaunchVehicle';
@@ -789,8 +790,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         ? new THREE.IcosahedronGeometry(1, 2)
         : new THREE.SphereGeometry(1, jupiterMoon ? 64 : 24, jupiterMoon ? 40 : 16);
       let map: THREE.Texture | null = null;
-      if (config.key === 'ganymede') {
-        map = new THREE.TextureLoader().load(ganymedeSurfaceUrl);
+      if (config.key === 'io' || config.key === 'ganymede') {
+        map = new THREE.TextureLoader().load(config.key === 'io' ? ioSurfaceUrl : ganymedeSurfaceUrl);
         map.colorSpace = THREE.SRGBColorSpace;
         map.wrapS = THREE.RepeatWrapping;
       } else if (config.key === 'europa') {
@@ -1607,7 +1608,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     for (const { config, host, mesh, label, orbit, distanceScale, radius } of moonRenderNodesRef.current.values()) {
       const pos = calculatePlanetaryMoonPosition(config, host, ephemeris.timeSeconds);
       mesh.position.set(pos.x, pos.y, pos.z).multiplyScalar(distanceScale);
-      if (config.key === 'europa') {
+      if (config.key === 'io' || config.key === 'europa') {
         const inclination = THREE.MathUtils.degToRad(config.inclinationDeg);
         const pole = new THREE.Vector3(0, Math.cos(inclination), Math.sin(inclination))
           .applyAxisAngle(new THREE.Vector3(0, 0, 1), host.axialTiltRad);

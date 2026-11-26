@@ -9,7 +9,7 @@
 ### 1. 🪐 Sun-Earth-Moon Celestial Dynamics
 - **High-Fidelity 3D Physics**:
   - Realistic Keplerian orbital propagation with true planetary eccentricities, orbital periods, and axial tilts ($23.44^\circ$ Earth obliquity, $5.145^\circ$ Moon ecliptic inclination with $18.6$-year nodal precession cycle).
-  - Earth uses a bundled [2,048 × 1,024 surface map from the Three.js examples](https://github.com/mrdoob/three.js/blob/dev/examples/textures/planets/earth_atmos_2048.jpg). Ganymede uses a spacecraft-derived map. The app generates other surface textures locally.
+  - Earth uses a bundled [2,048 × 1,024 surface map from the Three.js examples](https://github.com/mrdoob/three.js/blob/dev/examples/textures/planets/earth_atmos_2048.jpg). Io and Ganymede use spacecraft-derived maps. The app generates other surface textures locally.
 - **Multiple Coordinate Reference Frames**:
   - **Heliocentric**: Sun-centered solar system orbit overview.
   - **Geocentric**: Earth-centered cislunar dynamics view.
@@ -101,6 +101,7 @@ npm run build
 ## Surface imagery credits
 
 - Ganymede uses [Askaniy Anpilogov’s Celestia color map](https://github.com/CelestiaProject/CelestiaContent/blob/1bbbf41ed4639a17fd9a884fd843e425caedd9a3/textures/hires/ganymede.jpg), derived from NASA/JPL-Caltech/ASI/USGS imagery, maps by Björn Jónsson, and Juno imagery processed by Brian Swift (NASA/JPL-Caltech/SwRI/MSSS). The map is licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) and was resized and converted to WebP for AstroSim.
+- Io uses the [Celestia Io color map](https://github.com/CelestiaProject/CelestiaContent/blob/1bbbf41ed4639a17fd9a884fd843e425caedd9a3/textures/hires/io.png) credited to ItzImcool, NASA/JPL-Caltech/ASI/USGS, NASA/JPL/SwRI/MSSS, Gerald Eichstädt, Jason Perry, John Rogers, and AstroChara. The map is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and was resized and converted from the RGB channels to WebP for AstroSim.
 
 ## 📄 License
 MIT License

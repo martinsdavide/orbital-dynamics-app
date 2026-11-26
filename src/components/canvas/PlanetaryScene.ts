@@ -40,5 +40,7 @@ export function getMoonOrbitScale(host: PlanetConfig, scaleMode: ScaleMode): num
   const outermostOrbit = Math.max(0, ...PLANETARY_MOONS
     .filter(moon => moon.host === host.key)
     .map(moon => moon.semiMajorAxis));
-  return outermostOrbit > 0 ? Math.min(hostScale, 100 / outermostOrbit) : hostScale;
+  // Leave clearance between Io’s surface and the enlarged Jupiter in visual mode.
+  const overviewRadius = host.key === 'jupiter' ? 105 : 100;
+  return outermostOrbit > 0 ? Math.min(hostScale, overviewRadius / outermostOrbit) : hostScale;
 }
