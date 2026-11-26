@@ -746,23 +746,101 @@ export function createCeresTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+// Europa's bright ice is crossed by dark, reddish lineae and broken terrain.
+export function createEuropaTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1536;
+  canvas.height = 768;
+  const { width, height } = canvas;
+  const ctx = canvas.getContext('2d')!;
+  const ice = ctx.createImageData(width, height);
+  const longitudeCos = Array.from({ length: width }, (_, x) => Math.cos(x / width * 2 * Math.PI));
+  const longitudeSin = Array.from({ length: width }, (_, x) => Math.sin(x / width * 2 * Math.PI));
+  for (let row = 0; row < height; row++) {
+    const latitude = Math.PI * (0.5 - row / height);
+    const y = Math.sin(latitude);
+    const surfaceRadius = Math.cos(latitude);
+    for (let col = 0; col < width; col++) {
+      const x = surfaceRadius * longitudeCos[col];
+      const z = surfaceRadius * longitudeSin[col];
+      const mottling = 6 * Math.sin(11 * x + 7 * y) * Math.sin(13 * z - 4 * y) +
+        4 * Math.sin(34 * x - 19 * y + 28 * z) + 2 * Math.cos(119 * x - 93 * y + 71 * z);
+      const disrupted = Math.max(0, Math.sin(5 * x - 6 * z + 3 * y) * Math.cos(3 * z - 8 * y)) ** 2;
+      const index = (row * width + col) * 4;
+      ice.data[index] = 223 + mottling - 31 * disrupted;
+      ice.data[index + 1] = 217 + mottling - 47 * disrupted;
+      ice.data[index + 2] = 202 + mottling - 54 * disrupted;
+      ice.data[index + 3] = 255;
+    }
+  }
+  ctx.putImageData(ice, 0, 0);
+
+  let seed = 4118;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (let index = 0; index < 88; index++) {
+    const x = random() * width;
+    const y = (0.16 + 0.68 * random()) * height;
+    const length = 85 + 610 * random() ** 2.1;
+    const slope = (random() - 0.5) * 0.82;
+    const bend = (random() - 0.5) * 0.19 * height;
+    const bandWidth = 0.6 + 4 * random() ** 2;
+    const phase = random() * 2 * Math.PI;
+    for (const wrap of [-width, 0, width]) {
+      ctx.beginPath();
+      for (let step = 0; step <= 48; step++) {
+        const u = step / 48;
+        const px = x + wrap + u * length;
+        const py = y + u * slope * length + bend * Math.sin(Math.PI * u) +
+          1.7 * Math.sin(10 * u + phase) + 0.7 * Math.cos(37 * u + phase);
+        if (step === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = 'rgba(151, 90, 56, 0.28)';
+      ctx.lineWidth = bandWidth * 2.8;
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(110, 62, 44, 0.58)';
+      ctx.lineWidth = bandWidth;
+      ctx.stroke();
+      if (bandWidth > 2.5) {
+        ctx.strokeStyle = 'rgba(235, 215, 184, 0.60)';
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+      }
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  return texture;
+}
+
 // Procedural 3D Billboard Planet Label Sprite
 export function createPlanetLabelTexture(name: string, colorHex: string): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
   canvas.height = 64;
   const ctx = canvas.getContext('2d')!;
+  const text = name.toUpperCase();
+  const font = 'bold 22px monospace, sans-serif';
+  const x = 6;
+  const y = 8;
+  const h = 48;
+  const r = 18;
+  const textOffset = 36;
+  const rightPadding = 14;
+  ctx.font = font;
+  const w = textOffset + Math.ceil(ctx.measureText(text).width) + rightPadding;
+  canvas.width = w + x * 2;
+  ctx.font = font;
 
-  // Glassmorphic pill badge background
   ctx.fillStyle = 'rgba(10, 15, 30, 0.75)';
   ctx.strokeStyle = colorHex;
   ctx.lineWidth = 3;
-
-  const r = 18;
-  const x = 6;
-  const y = 8;
-  const w = 244;
-  const h = 48;
 
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -781,15 +859,14 @@ export function createPlanetLabelTexture(name: string, colorHex: string): THREE.
   // Color dot indicator
   ctx.fillStyle = colorHex;
   ctx.beginPath();
-  ctx.arc(x + 24, y + h / 2, 7, 0, Math.PI * 2);
+  ctx.arc(x + 19, y + h / 2, 6, 0, Math.PI * 2);
   ctx.fill();
 
   // Planet Name
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 22px monospace, sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  ctx.fillText(name.toUpperCase(), x + 42, y + h / 2 + 1);
+  ctx.fillText(text, x + textOffset, y + h / 2 + 1);
 
   const texture = new THREE.CanvasTexture(canvas);
   return texture;

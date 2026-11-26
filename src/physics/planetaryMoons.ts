@@ -1,7 +1,7 @@
 import type { PlanetConfig } from './constants.ts';
 import { calculateKeplerianOrbit } from './orbitalMechanics.ts';
 
-export type PlanetaryMoonKey = 'phobos' | 'deimos' | 'ganymede' | 'callisto' | 'titan';
+export type PlanetaryMoonKey = 'phobos' | 'deimos' | 'europa' | 'ganymede' | 'callisto' | 'titan';
 
 interface PlanetaryMoon {
   key: PlanetaryMoonKey;
@@ -26,6 +26,11 @@ export const PLANETARY_MOONS: PlanetaryMoon[] = [
     key: 'deimos', name: 'Deimos', host: 'mars', radius: 6_200,
     semiMajorAxis: 23_463_000, eccentricity: 0.00033, orbitalPeriod: 1.26244 * 86_400,
     inclinationDeg: 1.79, phase: 2.3, color: '#c0b2a1',
+  },
+  {
+    key: 'europa', name: 'Europa', host: 'jupiter', radius: 1_560_800,
+    semiMajorAxis: 671_100_000, eccentricity: 0.0094, orbitalPeriod: 3.551181 * 86_400,
+    inclinationDeg: 0.47, phase: 4.2, color: '#dbc3a4',
   },
   {
     key: 'ganymede', name: 'Ganymede', host: 'jupiter', radius: 2_634_100,

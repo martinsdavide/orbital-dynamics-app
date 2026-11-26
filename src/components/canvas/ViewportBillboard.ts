@@ -1,15 +1,18 @@
-import { Sprite, SpriteMaterial, Vector2, type Texture } from 'three';
+import { Sprite, SpriteMaterial, Vector2, type CanvasTexture } from 'three';
 
 const viewportSize = new Vector2();
 
 export class ViewportBillboard extends Sprite {
-  constructor(texture: Texture, width: number, height: number, depthTest = true) {
+  constructor(texture: CanvasTexture, height: number, depthTest = true) {
     super(new SpriteMaterial({
       map: texture,
       transparent: true,
       depthTest,
       sizeAttenuation: false,
     }));
+
+    const image = texture.image;
+    const width = height * image.width / image.height;
 
     // Frustum culling would use the sprite's unprojected size near the viewport edge.
     this.frustumCulled = false;

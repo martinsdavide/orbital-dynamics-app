@@ -18,6 +18,7 @@ import { getMoonOrbitScale, getPlanetDisplayRadius, getSolarSystemOffset, projec
 import {
   createMoonTexture,
   createCallistoTexture,
+  createEuropaTexture,
   createSunTexture,
   createParticleTexture,
   createMercuryTexture,
@@ -34,12 +35,12 @@ import {
 } from './TextureGenerator';
 
 // Helper to create glowing numbered milestone badge sprites (1 to 8)
-function createMilestoneBadgeTexture(num: number, color: string): THREE.Texture {
+function createMilestoneBadgeTexture(num: number, color: string): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 128;
   canvas.height = 128;
   const ctx = canvas.getContext('2d');
-  if (!ctx) return new THREE.Texture();
+  if (!ctx) return new THREE.CanvasTexture(canvas);
 
   // Glow ring
   const grad = ctx.createRadialGradient(64, 64, 20, 64, 64, 60);
@@ -117,7 +118,6 @@ export function getScalingConfig(scaleMode: ScaleMode) {
   }
 }
 
-const PLANET_BADGE_WIDTH = 112;
 const PLANET_BADGE_HEIGHT = 28;
 
 const LAUNCHPAD_CAMERA_DISTANCE = 0.22;
@@ -566,7 +566,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     // Earth Billboard Label Sprite
     const earthLabelTex = createPlanetLabelTexture('Earth', '#2b65ec');
-    const earthLabelSprite = new ViewportBillboard(earthLabelTex, PLANET_BADGE_WIDTH, PLANET_BADGE_HEIGHT, false);
+    const earthLabelSprite = new ViewportBillboard(earthLabelTex, PLANET_BADGE_HEIGHT, false);
     earthLabelSprite.position.y = SCALING.visual.earthRadius;
     earthLabelSprite.center.y = -0.18;
     earthGroup.add(earthLabelSprite);
@@ -716,7 +716,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
       // Billboard Planet Label Sprite
       const labelTex = createPlanetLabelTexture(cfg.name, cfg.colorHex);
-      const labelSprite = new ViewportBillboard(labelTex, PLANET_BADGE_WIDTH, PLANET_BADGE_HEIGHT, false);
+      const labelSprite = new ViewportBillboard(labelTex, PLANET_BADGE_HEIGHT, false);
       labelSprite.position.y = cfg.visualRadius;
       labelSprite.center.y = -0.18;
       planetGroup.add(labelSprite);
@@ -756,6 +756,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         map = new THREE.TextureLoader().load(ganymedeSurfaceUrl);
         map.colorSpace = THREE.SRGBColorSpace;
         map.wrapS = THREE.RepeatWrapping;
+      } else if (config.key === 'europa') {
+        map = createEuropaTexture();
       } else if (config.key === 'callisto') {
         map = createCallistoTexture();
       } else if (irregular) {
@@ -771,7 +773,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         emissiveIntensity: jupiterMoon ? 0.23 : 0.12,
       }));
       mesh.name = `moon_${config.key}`;
-      const label = new ViewportBillboard(createPlanetLabelTexture(config.name, config.color), 84, 21, false);
+      const label = new ViewportBillboard(createPlanetLabelTexture(config.name, config.color), 21, false);
       label.center.y = -0.18;
       const orbit = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({
         color: config.color,
@@ -1561,7 +1563,16 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     for (const { config, host, mesh, label, orbit, distanceScale, radius } of moonRenderNodesRef.current.values()) {
       const pos = calculatePlanetaryMoonPosition(config, host, ephemeris.timeSeconds);
       mesh.position.set(pos.x, pos.y, pos.z).multiplyScalar(distanceScale);
-      mesh.rotation.y = Math.atan2(pos.x, pos.z);
+      if (config.key === 'europa') {
+        const inclination = THREE.MathUtils.degToRad(config.inclinationDeg);
+        const pole = new THREE.Vector3(0, Math.cos(inclination), Math.sin(inclination))
+          .applyAxisAngle(new THREE.Vector3(0, 0, 1), host.axialTiltRad);
+        const towardJupiter = mesh.position.clone().normalize().negate();
+        const right = new THREE.Vector3().crossVectors(pole, towardJupiter).normalize();
+        mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(right, pole, towardJupiter));
+      } else {
+        mesh.rotation.y = Math.atan2(pos.x, pos.z);
+      }
       label.position.copy(mesh.position);
       label.position.y += radius;
       label.visible = showPlanetLabels;
@@ -1834,7 +1845,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
           if (!badgePos) return;
 
           const texture = createMilestoneBadgeTexture(m.id, m.color);
-          const sprite = new ViewportBillboard(texture, 32, 32, false);
+          const sprite = new ViewportBillboard(texture, 32, false);
           sprite.position.copy(badgePos);
           milestoneBadgesGroupRef.current?.add(sprite);
         });

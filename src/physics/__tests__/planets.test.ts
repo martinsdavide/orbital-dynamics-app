@@ -151,9 +151,10 @@ test('Planetary moons revolve around their hosts in tilted prograde orbits', () 
 
 test('Jupiter moon orbits retain their relative spacing in visual scale', () => {
   const jupiter = PLANET_CONFIGS.find(planet => planet.key === 'jupiter')!;
-  const [ganymede, callisto] = PLANETARY_MOONS.filter(moon => moon.host === 'jupiter');
+  const [europa, ganymede, callisto] = PLANETARY_MOONS.filter(moon => moon.host === 'jupiter');
   const scale = getMoonOrbitScale(jupiter, 'visual');
-  assert.ok(ganymede.semiMajorAxis * scale > jupiter.visualRadius);
+  assert.ok(europa.semiMajorAxis * scale > jupiter.visualRadius);
+  assert.ok(europa.semiMajorAxis * scale < ganymede.semiMajorAxis * scale);
   assert.ok(ganymede.semiMajorAxis * scale < callisto.semiMajorAxis * scale);
   assert.ok(callisto.semiMajorAxis * scale <= 100 + 1e-10);
 });

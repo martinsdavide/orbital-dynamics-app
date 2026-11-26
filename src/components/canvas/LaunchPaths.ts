@@ -33,7 +33,7 @@ export class LaunchPaths {
     new THREE.LineBasicMaterial({ color: 0xffc86c, toneMapped: false }),
   );
   private readonly points = new THREE.BufferAttribute(new Float32Array(TRAIL_CAPACITY * 3), 3).setUsage(THREE.DynamicDrawUsage);
-  private readonly karmanMarker = new ViewportBillboard(createPlanetLabelTexture('100 km', '#7ee5b5'), 76, 19);
+  private readonly karmanMarker = new ViewportBillboard(createPlanetLabelTexture('100 km', '#7ee5b5'), 19);
   private readonly lastPoint = new THREE.Vector3();
   private count = 0;
   private sampleInterval = 0.75;
@@ -69,7 +69,7 @@ export class LaunchPaths {
         this.chassis.add(panel);
       }
     }
-    const label = new ViewportBillboard(createPlanetLabelTexture('ISS', '#67bcff'), 76, 19);
+    const label = new ViewportBillboard(createPlanetLabelTexture('ISS', '#67bcff'), 19);
     label.position.y = 0.04;
     label.center.y = -0.18;
     this.station.add(this.chassis, label);
