@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BoosterPlasma } from './BoosterPlasma';
 import { boosterReturnElapsed, type BoosterReturn, SUPER_HEAVY_PRESET_ID } from '../../physics/boosterReturn';
 import { EARTH } from '../../physics/constants.ts';
 import type { RocketPreset, RocketTelemetry } from '../../types/rocket';
@@ -32,6 +33,7 @@ export class LaunchVehicle {
   readonly boosterCameraDirection = new THREE.Vector3();
   readonly boosterCameraUp = new THREE.Vector3();
   boosterFramingRadius = 0;
+  boosterNearPad = false;
   framingRadius = 0;
   separationWeight = 0;
 
@@ -45,6 +47,7 @@ export class LaunchVehicle {
     new THREE.RingGeometry(0.003, 0.0046, 24),
     new THREE.MeshBasicMaterial({ color: 0xf4a65b, side: THREE.DoubleSide, depthWrite: false }),
   );
+  private boosterPlasma?: BoosterPlasma;
   private boosterPlume?: THREE.Mesh;
   private readonly sections: Section[] = [];
   private readonly detached = new THREE.Group();
@@ -126,6 +129,8 @@ export class LaunchVehicle {
   }
 
   private clearSections() {
+    this.boosterPlasma?.dispose();
+    this.boosterPlasma = undefined;
     for (const { model } of this.sections) {
       model.removeFromParent();
       model.traverse(object => {
@@ -197,7 +202,8 @@ export class LaunchVehicle {
           this.boosterPlume.rotation.z = Math.PI;
           this.boosterPlume.position.y = -bodyHeight / 2 - height * 0.24;
           this.boosterPlume.visible = false;
-          model.add(this.boosterPlume);
+          this.boosterPlasma = new BoosterPlasma(radius, bodyHeight);
+          model.add(this.boosterPlume, this.boosterPlasma.group);
         }
 
         const coreRadius = rocket.diameter * scale * 0.5;
@@ -248,6 +254,8 @@ export class LaunchVehicle {
     });
     if (reset) this.boosterTrailTime = -1;
     this.boosterFramingRadius = 0;
+    this.boosterNearPad = false;
+    if (this.boosterPlasma) this.boosterPlasma.group.visible = false;
     if (this.boosterPlume) this.boosterPlume.visible = booster?.engineOn ?? false;
 
     this.bounds.makeEmpty();
@@ -276,7 +284,14 @@ export class LaunchVehicle {
         model.visible = booster.phase !== 'Recovery missed';
         this.boosterTarget.copy(model.position);
         this.boosterFramingRadius = section.halfLength + section.width;
+        this.boosterNearPad = booster.altitude < 5000 && Math.abs(booster.downrangeDistance) < 5000;
         this.boosterCameraUp.copy(up).multiplyScalar(Math.cos(angle)).addScaledVector(east, Math.sin(angle));
+        if (booster.phase === 'Atmospheric descent' && this.boosterPlasma) {
+          const velocity = this.corner.copy(east).multiplyScalar(Math.cos(angle) * booster.horizontalSpeed)
+            .addScaledVector(up, -Math.sin(angle) * booster.horizontalSpeed)
+            .addScaledVector(this.boosterCameraUp, booster.verticalSpeed);
+          this.boosterPlasma.update(booster, velocity, model.quaternion, boosterReturn.entryTime);
+        }
         this.boosterCameraDirection.copy(lateral).multiplyScalar(0.9)
           .addScaledVector(this.boosterCameraUp, 0.38).addScaledVector(east, -0.32).normalize();
         if (!model.visible) {

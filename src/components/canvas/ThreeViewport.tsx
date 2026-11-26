@@ -1144,6 +1144,13 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     let animId: number;
     let lastExhaustTime = 0;
     const viewSpacePin = new THREE.Vector3();
+    const renderView = (view: THREE.Camera, trackingBooster: boolean) => {
+      const standVisible = launchVehicle.stand.visible;
+      // The enlarged tower would obscure the booster well above the pad.
+      if (trackingBooster && !launchVehicle.boosterNearPad) launchVehicle.stand.visible = false;
+      renderer.render(scene, view);
+      launchVehicle.stand.visible = standVisible;
+    };
     const animate = () => {
       animId = requestAnimationFrame(animate);
 
@@ -1217,7 +1224,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         pAttr.needsUpdate = true;
       }
 
-      renderer.render(scene, camera);
+      renderView(camera, followBoosterRef.current && launchVehicle.boosterFramingRadius > 0);
 
       const inset = boosterInsetRef.current;
       if (inset && launchVehicle.boosterFramingRadius > 0) {
@@ -1241,7 +1248,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         renderer.setViewport(x, y, w, h);
         renderer.setScissor(x, y, w, h);
         renderer.setScissorTest(true);
-        renderer.render(scene, boosterCamera);
+        renderView(boosterCamera, true);
         renderer.setScissorTest(false);
         renderer.setViewport(0, 0, canvas.width, canvas.height);
       }
