@@ -222,7 +222,7 @@ export function App() {
         activeRocket={activeRocket}
         rocketTelemetry={rocketTelemetry}
         boosterReturn={boosterReturn}
-        showBoosterInset={showBoosterInset && !isDecluttered}
+        showBoosterInset={showBoosterInset}
         boosterPhase={boosterSample?.phase}
         activeTrajectory={activeTrajectory}
         cameraPreset={cameraPreset}
