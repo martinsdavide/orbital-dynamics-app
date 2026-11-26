@@ -18,6 +18,7 @@ import type { EarthMoonTrajectory } from './types/trajectory';
 import { SPACEPORTS } from './data/spaceports';
 import { ROCKET_PRESETS } from './data/rockets';
 import { getEphemerisState } from './physics/orbitalMechanics';
+import { HALLEY_PERIHELION_SECONDS } from './physics/halley';
 import { createPadTelemetry, simulateRocketAscentStep } from './physics/rocketDynamics';
 import { solveEarthMoonTrajectory } from './physics/trajectorySolver';
 
@@ -270,6 +271,11 @@ export function App() {
           onToggleAsteroidBelt={() => setShowAsteroidBelt(value => !value)}
           showPlanetLabels={showPlanetLabels}
           onTogglePlanetLabels={() => setShowPlanetLabels(!showPlanetLabels)}
+          onViewHalleyPerihelion={() => {
+            setSimTimeSeconds(HALLEY_PERIHELION_SECONDS);
+            setIsPlaying(false);
+            setCameraPreset('halley');
+          }}
           ephemeris={ephemeris}
           isCollapsed={isLeftPanelCollapsed}
           onToggleCollapse={() => setIsLeftPanelCollapsed(!isLeftPanelCollapsed)}

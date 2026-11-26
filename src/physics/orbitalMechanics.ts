@@ -13,10 +13,17 @@ export function calculateKeplerianOrbit(
   ascendingNode = 0
 ): { position: Vector3D; velocity: Vector3D } {
   const meanMotion = (2 * Math.PI) / orbitalPeriod;
-  const meanAnomaly = (meanAnomalyOffset + meanMotion * timeSeconds) % (2 * Math.PI);
-
+  let meanAnomaly = (meanAnomalyOffset + meanMotion * timeSeconds) % (2 * Math.PI);
   let E = meanAnomaly;
-  for (let i = 0; i < 6; i++) {
+  let iterationLimit = 6;
+  if (eccentricity > 0.8) {
+    // Start highly eccentric orbits on the same side of periapsis as the solution.
+    if (meanAnomaly > Math.PI) meanAnomaly -= 2 * Math.PI;
+    if (meanAnomaly < -Math.PI) meanAnomaly += 2 * Math.PI;
+    E = Math.sign(meanAnomaly) * Math.PI;
+    iterationLimit = 20;
+  }
+  for (let i = 0; i < iterationLimit; i++) {
     const dE = (E - eccentricity * Math.sin(E) - meanAnomaly) / (1 - eccentricity * Math.cos(E));
     E -= dE;
     if (Math.abs(dE) < 1e-7) break;

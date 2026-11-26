@@ -37,6 +37,7 @@ interface SystemViewControlsProps {
   onTogglePlanetaryOrbits?: () => void;
   showPlanetLabels?: boolean;
   onTogglePlanetLabels?: () => void;
+  onViewHalleyPerihelion: () => void;
   ephemeris: EphemerisState;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -77,6 +78,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   onTogglePlanetaryOrbits,
   showPlanetLabels = true,
   onTogglePlanetLabels,
+  onViewHalleyPerihelion,
   ephemeris,
   isCollapsed,
   onToggleCollapse,
@@ -309,7 +311,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
         <label className="flex items-center justify-between cursor-pointer group p-1.5 rounded-lg bg-gray-900/40 hover:bg-gray-900 border border-gray-800/60">
           <span className="flex items-center space-x-2 text-amber-200">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block shadow-sm shadow-amber-400/50" />
-            <span>Planet and Moon Orbit Paths</span>
+            <span>Planet, Moon, and Comet Orbit Paths</span>
           </span>
           <input
             type="checkbox"
@@ -360,6 +362,14 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
           </span>
           <input type="checkbox" checked={showEarthMoonLagrange} onChange={onToggleEarthMoonLagrange} className="h-4 w-4 cursor-pointer accent-blue-500" />
         </label>
+
+        <button
+          type="button"
+          onClick={onViewHalleyPerihelion}
+          className="w-full rounded-lg border border-cyan-800/60 bg-cyan-950/30 px-2 py-1.5 text-left text-cyan-200 hover:bg-cyan-900/50"
+        >
+          View Halley at perihelion
+        </button>
 
         {/* Planet Telemetry Inspector */}
         {ephemeris.planets && ephemeris.planets.length > 0 && (

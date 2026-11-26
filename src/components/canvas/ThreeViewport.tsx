@@ -5,6 +5,7 @@ import ganymedeSurfaceUrl from '../../assets/ganymede-surface.webp';
 import { LAUNCH_MODEL_SCALE, LaunchVehicle } from './LaunchVehicle';
 import { LaunchPaths } from './LaunchPaths';
 import { createAsteroidBelt } from './AsteroidBelt';
+import { createHalleyComet } from './HalleyComet';
 import { ViewportBillboard } from './ViewportBillboard';
 import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey, LagrangePoint } from '../../types/celestial';
 import { calculatePlanetaryMoonPosition, PLANETARY_MOONS, type PlanetaryMoonKey } from '../../physics/planetaryMoons.ts';
@@ -149,6 +150,7 @@ export type CameraPreset =
   | PlanetKey
   | 'free'
   | 'asteroid_belt'
+  | 'halley'
   | 'moon'
   | 'sun'
   | 'rocket'
@@ -222,6 +224,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
   } = props;
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const halleyRef = useRef<ReturnType<typeof createHalleyComet> | null>(null);
   const asteroidBeltRef = useRef<ReturnType<typeof createAsteroidBelt> | null>(null);
   const beltOverviewRef = useRef<ScaleMode | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -436,6 +439,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     const asteroidBelt = createAsteroidBelt(renderer.getPixelRatio(), ceres.semiMajorAxis / EARTH.semiMajorAxis, ceres.visualDistance);
     scene.add(asteroidBelt);
     asteroidBeltRef.current = asteroidBelt;
+    const halley = createHalleyComet();
+    halleyRef.current = halley;
+    scene.add(halley.group);
 
     // Dynamic Lighting
     const ambientLight = new THREE.AmbientLight(0x334155, 1.2);
@@ -1267,6 +1273,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       pinMat.dispose();
       ringGeo.dispose();
       ringMat.dispose();
+      halley.dispose();
+      halleyRef.current = null;
       asteroidBelt.geometry.dispose();
       asteroidBelt.material.dispose();
       launchPaths.dispose();
@@ -1455,6 +1463,14 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         asteroidBelt.material.uniforms.elapsedDays.value = ephemeris.timeSeconds / 86400;
         asteroidBelt.material.uniforms.sceneUnitsPerAu.value = sunDist;
         asteroidBelt.material.uniforms.visualMode.value = scaleMode === 'visual';
+      }
+    }
+    const halley = halleyRef.current;
+    if (halley) {
+      halley.group.visible = appMode === 'system';
+      if (halley.group.visible) {
+        halley.group.position.copy(sunWorldPos);
+        halley.update(ephemeris.timeSeconds, sunDist, showPlanetaryOrbits, showPlanetLabels);
       }
     }
     const currentEarthWorldPos = earthHeliocentric.clone().add(sunWorldPos);
@@ -1914,6 +1930,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         cameraSphericalRef.current = { radius, theta: 0.42, phi: 0.52 };
         targetRadiusRef.current = radius;
       }
+    } else if (cameraPreset === 'halley' && halley) {
+      cameraTargetRef.current.copy(halley.nucleus.position).add(sunWorldPos);
+      cameraSphericalRef.current.radius = sunDist * 0.9;
+      targetRadiusRef.current = sunDist * 0.9;
     } else if (cameraPreset === 'free') {
       cameraTargetRef.current.set(0, 0, 0);
     } else if (cameraPreset === 'earth') {
