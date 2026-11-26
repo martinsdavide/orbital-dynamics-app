@@ -37,7 +37,7 @@ interface SystemViewControlsProps {
   onTogglePlanetaryOrbits?: () => void;
   showPlanetLabels?: boolean;
   onTogglePlanetLabels?: () => void;
-  onViewHalleyPerihelion: () => void;
+  onViewHalley: () => void;
   ephemeris: EphemerisState;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -78,7 +78,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   onTogglePlanetaryOrbits,
   showPlanetLabels = true,
   onTogglePlanetLabels,
-  onViewHalleyPerihelion,
+  onViewHalley,
   ephemeris,
   isCollapsed,
   onToggleCollapse,
@@ -365,10 +365,10 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
 
         <button
           type="button"
-          onClick={onViewHalleyPerihelion}
+          onClick={onViewHalley}
           className="w-full rounded-lg border border-cyan-800/60 bg-cyan-950/30 px-2 py-1.5 text-left text-cyan-200 hover:bg-cyan-900/50"
         >
-          View Halley at perihelion
+          View Halley near Saturn’s orbit
         </button>
 
         {/* Planet Telemetry Inspector */}

@@ -1,4 +1,4 @@
-import { EARTH, SUN } from './constants.ts';
+import { EARTH, SUN, PLANET_CONFIGS } from './constants.ts';
 import { calculateKeplerianOrbit } from './orbitalMechanics.ts';
 
 const radians = Math.PI / 180;
@@ -7,6 +7,13 @@ const eccentricity = 0.96714;
 export const HALLEY_PERIOD_SECONDS = 2 * Math.PI * Math.sqrt(semiMajorAxis ** 3 / SUN.mu);
 export const HALLEY_PERIHELION_SECONDS =
   (Date.UTC(2061, 6, 28) - Date.UTC(2000, 0, 1, 12)) / 1000;
+
+// Use Saturn’s mean orbital radius and the inbound branch of Halley’s orbit.
+const saturnOrbit = PLANET_CONFIGS.find(planet => planet.key === 'saturn')!;
+const inboundEccentricAnomaly = -Math.acos((1 - saturnOrbit.semiMajorAxis / semiMajorAxis) / eccentricity);
+const inboundMeanAnomaly = inboundEccentricAnomaly - eccentricity * Math.sin(inboundEccentricAnomaly);
+export const HALLEY_SATURN_DISTANCE_SECONDS =
+  HALLEY_PERIHELION_SECONDS + inboundMeanAnomaly * HALLEY_PERIOD_SECONDS / (2 * Math.PI);
 
 export function calculateHalleyOrbit(timeSeconds: number) {
   // Fixed, approximate orbital elements for 1P/Halley, phased to the 2061 return.

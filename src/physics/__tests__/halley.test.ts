@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EARTH } from '../constants.ts';
-import { calculateHalleyOrbit, getHalleyActivity, HALLEY_PERIOD_SECONDS, HALLEY_PERIHELION_SECONDS } from '../halley.ts';
+import { EARTH, PLANET_CONFIGS } from '../constants.ts';
+import { calculateHalleyOrbit, getHalleyActivity, HALLEY_PERIOD_SECONDS, HALLEY_PERIHELION_SECONDS, HALLEY_SATURN_DISTANCE_SECONDS } from '../halley.ts';
 
 const radiusAu = (time: number) => {
   const { x, y, z } = calculateHalleyOrbit(time).position;
@@ -29,4 +29,13 @@ test('Halley’s rendered activity fades in smoothly as it approaches the Sun', 
   assert.ok(getHalleyActivity(2.99) < 0.001);
   assert.ok(getHalleyActivity(1) > getHalleyActivity(2));
   assert.equal(getHalleyActivity(radiusAu(HALLEY_PERIHELION_SECONDS)), 1);
+});
+
+test('The Halley preview starts at Saturn’s orbital distance while inbound', () => {
+  const start = HALLEY_SATURN_DISTANCE_SECONDS;
+  const saturn = PLANET_CONFIGS.find(planet => planet.key === 'saturn')!;
+  assert.ok(start < HALLEY_PERIHELION_SECONDS);
+  assert.ok(Math.abs(radiusAu(start) - saturn.semiMajorAxis / EARTH.semiMajorAxis) < 1e-8);
+  assert.ok(radiusAu(start + 86400) < radiusAu(start));
+  assert.equal(getHalleyActivity(radiusAu(start)), 0);
 });
