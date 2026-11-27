@@ -51,12 +51,12 @@ export function App() {
 
   const [simTimeSeconds, setSimTimeSeconds] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
-  const [timeWarp, setTimeWarp] = useState<number>(100);
+  const [timeWarp, setTimeWarp] = useState<number>(10);
   const [launchRate, setLaunchRate] = useState(2);
   const [isLaunchPlaying, setIsLaunchPlaying] = useState(true);
 
   const [referenceFrame, setReferenceFrame] = useState<ReferenceFrame>('heliocentric');
-  const [scaleMode, setScaleMode] = useState<ScaleMode>('visual');
+  const [scaleMode, setScaleMode] = useState<ScaleMode>('true');
 
   // Orbit Line & Trail Toggles
   const [showSunEarthLagrange, setShowSunEarthLagrange] = useState(true);

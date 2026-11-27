@@ -130,6 +130,7 @@ function getAsteroidBeltCameraRadius(mode: ScaleMode, aspect: number) {
   return (mode === 'true' ? getScalingConfig(mode).sunEarthDistance * 10.8 : 1800) / Math.min(1, aspect);
 }
 
+const INNER_SYSTEM_OPENING_DISTANCE = 2800;
 const DEFAULT_MAX_CAMERA_DISTANCE = 35_000;
 const DEFAULT_CAMERA_FAR = 100_000;
 const OUTERMOST_ORBIT_AU = Math.max(...[...PLANET_CONFIGS, ...DWARF_PLANET_CONFIGS].map(
@@ -308,8 +309,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
   const isDraggingRef = useRef(false);
   const prevMousePosRef = useRef({ x: 0, y: 0 });
-  const cameraSphericalRef = useRef({ radius: 140, theta: Math.PI / 4, phi: Math.PI / 3 });
-  const targetRadiusRef = useRef(140);
+  const openingRadius = appMode === 'system' && scaleMode === 'true' && cameraPreset === 'free'
+    ? INNER_SYSTEM_OPENING_DISTANCE : 140;
+  const cameraSphericalRef = useRef({ radius: openingRadius, theta: Math.PI / 4, phi: Math.PI / 3 });
+  const targetRadiusRef = useRef(openingRadius);
   const maxCameraDistanceRef = useRef(DEFAULT_MAX_CAMERA_DISTANCE);
   const trueScaleSystemRef = useRef(false);
   const launchpadCameraUpRef = useRef<THREE.Vector3 | null>(null);
