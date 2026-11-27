@@ -12,12 +12,13 @@ interface SatelliteGlobeProps {
   paths: Paths;
   points: Float32Array;
   overviewDistance: number;
+  pointColor: string;
   follow: boolean;
   showOrbit: boolean;
   showGroundTrack: boolean;
 }
 
-export function SatelliteGlobe({ sample, paths, points, overviewDistance, follow, showOrbit, showGroundTrack }: SatelliteGlobeProps) {
+export function SatelliteGlobe({ sample, paths, points, overviewDistance, pointColor, follow, showOrbit, showGroundTrack }: SatelliteGlobeProps) {
   const mount = useRef<HTMLDivElement>(null);
   const sceneObjects = useRef<{
     updateCloud: (points: Float32Array) => void;
@@ -53,7 +54,7 @@ export function SatelliteGlobe({ sample, paths, points, overviewDistance, follow
     const marker = new THREE.Mesh(new THREE.SphereGeometry(0.022, 16, 12), new THREE.MeshBasicMaterial({ color: '#fff3b1' }));
     marker.name = 'Selected satellite marker';
     const cloud = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({
-      color: '#71c5f5', size: 2.5, sizeAttenuation: false, transparent: true, opacity: 0.65,
+      color: pointColor, size: 2.5, sizeAttenuation: false, transparent: true, opacity: 0.65,
     }));
     cloud.name = 'Satellite constellation';
     cloud.frustumCulled = false;
@@ -110,7 +111,7 @@ export function SatelliteGlobe({ sample, paths, points, overviewDistance, follow
       renderer.domElement.remove();
       sceneObjects.current = null;
     };
-  }, [overviewDistance]);
+  }, [overviewDistance, pointColor]);
 
   useEffect(() => {
     sceneObjects.current?.animate(follow, sample);

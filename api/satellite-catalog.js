@@ -1,4 +1,7 @@
-const groups = new Set(['starlink', 'oneweb', 'gps-ops', 'galileo', 'glo-ops', 'weather']);
+const groups = new Set([
+  'starlink', 'oneweb', 'gps-ops', 'galileo', 'glo-ops', 'weather',
+  'fengyun-1c-debris', 'iridium-33-debris', 'cosmos-2251-debris',
+]);
 
 export default async function handler(request, response) {
   if (request.method !== 'GET') {

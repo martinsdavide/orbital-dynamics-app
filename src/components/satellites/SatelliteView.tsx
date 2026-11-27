@@ -3,7 +3,7 @@ import { ARCHIVED_ISS_CATALOG, MAX_ELEMENT_AGE_MS, readIssFeed, readSatelliteCat
 import { SatelliteGlobe } from './SatelliteGlobe';
 import { useCatalogPoints } from './useCatalogPoints';
 
-const groups = [
+const satelliteGroups = [
   { id: 'iss', label: 'International Space Station', distance: 4.2 },
   { id: 'starlink', label: 'Starlink', distance: 4.5 },
   { id: 'oneweb', label: 'OneWeb', distance: 5.0 },
@@ -12,6 +12,12 @@ const groups = [
   { id: 'glo-ops', label: 'GLONASS', distance: 12 },
   { id: 'weather', label: 'Weather satellites', distance: 19 },
 ] as const;
+const debrisGroups = [
+  { id: 'fengyun-1c-debris', label: 'Fengyun-1C debris', distance: 5.3 },
+  { id: 'iridium-33-debris', label: 'Iridium 33 debris', distance: 5.3 },
+  { id: 'cosmos-2251-debris', label: 'Cosmos 2251 debris', distance: 5.3 },
+] as const;
+const groups = [...satelliteGroups, ...debrisGroups] as const;
 type Group = typeof groups[number];
 const CACHE_KEY = 'astrosim.satellite-catalogs.v1';
 const EMPTY_CATALOG: SatelliteCatalog = { satellites: [] };
@@ -34,6 +40,7 @@ export function SatelliteView() {
 
 function CatalogView({ group, selectGroup }: { group: Group; selectGroup: (group: Group) => void }) {
   const isIss = group.id === 'iss';
+  const isDebris = debrisGroups.some(option => option.id === group.id);
   const [catalog, setCatalog] = useState(isIss ? ARCHIVED_ISS_CATALOG : EMPTY_CATALOG);
   const [source, setSource] = useState(isIss ? 'Archived ISS example' : '');
   const [loading, setLoading] = useState(true);
@@ -119,7 +126,7 @@ function CatalogView({ group, selectGroup }: { group: Group; selectGroup: (group
 
   return (
     <section className="absolute inset-0 pt-16" aria-label="Earth Satellites">
-      <SatelliteGlobe sample={sample} paths={paths} points={points} overviewDistance={group.distance} follow={follow} showOrbit={showOrbit} showGroundTrack={showGroundTrack} />
+      <SatelliteGlobe sample={sample} paths={paths} points={points} overviewDistance={group.distance} pointColor={isDebris ? '#f6a557' : '#71c5f5'} follow={follow} showOrbit={showOrbit} showGroundTrack={showGroundTrack} />
       <aside className="absolute left-3 top-20 max-h-[calc(100%-9rem)] w-[min(19rem,calc(100%-1.5rem))] space-y-3 overflow-auto rounded-xl border border-slate-700 bg-slate-950/90 p-3 text-xs shadow-xl sm:left-5">
         <label className="grid gap-1 font-semibold text-sky-200">
           Satellite group
@@ -127,7 +134,12 @@ function CatalogView({ group, selectGroup }: { group: Group; selectGroup: (group
             const next = groups.find(option => option.id === event.target.value);
             if (next) selectGroup(next);
           }}>
-            {groups.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+            <optgroup label="Satellites">
+              {satelliteGroups.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </optgroup>
+            <optgroup label="Orbital debris">
+              {debrisGroups.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+            </optgroup>
           </select>
         </label>
         {!isIss && catalog.satellites.length > 0 && (
@@ -137,20 +149,20 @@ function CatalogView({ group, selectGroup }: { group: Group; selectGroup: (group
               <input className="rounded bg-slate-800 px-2 py-1.5" type="search" value={query} onChange={event => setQuery(event.target.value)} />
             </label>
             <label className="grid gap-1">
-              Selected satellite
+              {isDebris ? 'Selected fragment' : 'Selected satellite'}
               <select className="rounded bg-slate-800 px-2 py-1.5" value={selectedId} onChange={event => setSelectedId(event.target.value)}>
-                <option value="">Constellation overview</option>
+                <option value="">{isDebris ? 'Debris overview' : 'Constellation overview'}</option>
                 {selected && !matches.slice(0, 100).includes(selected) && <option value={selected.id}>{selected.name} · {selected.id}</option>}
                 {matches.slice(0, 100).map(satellite => <option key={satellite.id} value={satellite.id}>{satellite.name} · {satellite.id}</option>)}
               </select>
             </label>
             {matches.length > 100 && <p className="text-slate-400">Showing 100 choices. Search to narrow the list.</p>}
-            {!matches.length && <p className="text-slate-400">No matching satellites.</p>}
+            {!matches.length && <p className="text-slate-400">No matching objects.</p>}
           </div>
         )}
         {selected && <h2 className="text-sm font-semibold text-sky-200">{selected.name}</h2>}
         {source && <p className="text-slate-300">{source}{selected && ` · NORAD ${selected.id}`}</p>}
-        {!isIss && catalog.satellites.length > 0 && <p className="text-slate-300">{points.length / 3} of {catalog.satellites.length} satellites plotted</p>}
+        {!isIss && catalog.satellites.length > 0 && <p className="text-slate-300">{points.length / 3} of {catalog.satellites.length} {isDebris ? 'debris objects' : 'satellites'} plotted</p>}
         <div className="space-y-1 text-slate-400" aria-live="polite">
           {epoch !== undefined && <p>Element epoch <span className="font-mono text-slate-200">{formatUtc(epoch)}</span></p>}
           {catalog.fetchedAt && <p>Fetched <span className="font-mono text-slate-200">{formatUtc(Date.parse(catalog.fetchedAt))}</span></p>}
@@ -171,7 +183,7 @@ function CatalogView({ group, selectGroup }: { group: Group; selectGroup: (group
           </dl>
         )}
         {selected && <div className="grid gap-1.5 border-t border-slate-800 pt-2">
-          <label><input type="checkbox" checked={follow} onChange={event => setFollow(event.target.checked)} /> {isIss ? 'Follow ISS' : 'Follow satellite'}</label>
+          <label><input type="checkbox" checked={follow} onChange={event => setFollow(event.target.checked)} /> {isIss ? 'Follow ISS' : isDebris ? 'Follow fragment' : 'Follow satellite'}</label>
           <label className="text-sky-300"><input type="checkbox" checked={showOrbit} onChange={event => setShowOrbit(event.target.checked)} /> Next orbit</label>
           <label className="text-amber-200"><input type="checkbox" checked={showGroundTrack} onChange={event => setShowGroundTrack(event.target.checked)} /> Ground track</label>
         </div>}
