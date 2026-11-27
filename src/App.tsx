@@ -1,8 +1,8 @@
 import { boosterReturnElapsed, createBoosterReturn, SUPER_HEAVY_PRESET_ID } from './physics/boosterReturn';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { ThreeViewport } from './components/canvas/ThreeViewport';
-import type { ActiveAppMode, CameraPreset, ThreeViewportHandle } from './components/canvas/ThreeViewport';
-import { Header } from './components/ui/Header';
+import type { CameraPreset, ThreeViewportHandle } from './components/canvas/ThreeViewport';
+import { Header, type AppMode } from './components/ui/Header';
 import { TimeControls } from './components/ui/TimeControls';
 import { SystemViewControls } from './components/ui/SystemViewControls';
 import { LaunchViewControls } from './components/ui/LaunchViewControls';
@@ -24,12 +24,14 @@ import { createPadTelemetry, simulateRocketAscentStep } from './physics/rocketDy
 import { solveEarthMoonTrajectory } from './physics/trajectorySolver';
 
 const DEFAULT_LAUNCH_SITE = SPACEPORTS.find(site => site.id === 'spacex_starbase')!;
+const SatelliteView = lazy(() => import('./components/satellites/SatelliteView').then(module => ({ default: module.SatelliteView })));
+
 const DEFAULT_LAUNCH_ROCKET = ROCKET_PRESETS.find(rocket => rocket.id === SUPER_HEAVY_PRESET_ID)!;
 
 export function App() {
   const viewportRef = useRef<ThreeViewportHandle>(null);
 
-  const [appMode, setAppMode] = useState<ActiveAppMode>('system');
+  const [appMode, setAppMode] = useState<AppMode>('system');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('free');
 
   const [isLeftPanelCollapsed, setIsLeftPanelCollapsed] = useState<boolean>(false);
@@ -154,7 +156,7 @@ export function App() {
     return () => cancelAnimationFrame(animFrame);
   }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, orbitTargetAltitude, rocketTelemetry.phase, boosterInFlight]);
 
-  const handleSelectMode = (mode: ActiveAppMode) => {
+  const handleSelectMode = (mode: AppMode) => {
     setAppMode(mode);
     if (mode === 'system') {
       setCameraPreset('free');
@@ -198,36 +200,42 @@ export function App() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-gray-950 text-gray-100 font-sans select-none">
-      <ThreeViewport
-        ref={viewportRef}
-        appMode={appMode}
-        ephemeris={ephemeris}
-        referenceFrame={referenceFrame}
-        scaleMode={scaleMode}
-        showSunEarthLagrange={showSunEarthLagrange}
-        showEarthMoonLagrange={showEarthMoonLagrange}
-        showEarthOrbit={showEarthOrbit}
-        showMoonOrbit={showMoonOrbit}
-        showComposedMoonSunOrbit={showComposedMoonSunOrbit}
-        showLunarSOI={showLunarSOI}
-        showAtmosphereGlow={showAtmosphereGlow}
-        showGeocentricSolarOrbit={showGeocentricSolarOrbit}
-        showEarthUmbraShadow={showEarthUmbraShadow}
-        showGeoLeoBelts={showGeoLeoBelts}
-        showLineOfNodes={showLineOfNodes}
-        showAsteroidBelt={showAsteroidBelt}
-        showPlanetaryOrbits={showPlanetaryOrbits}
-        showPlanetLabels={showPlanetLabels}
-        selectedSpaceport={selectedSpaceport}
-        activeRocket={activeRocket}
-        rocketTelemetry={rocketTelemetry}
-        boosterReturn={boosterReturn}
-        showBoosterInset={showBoosterInset}
-        boosterPhase={boosterSample?.phase}
-        activeTrajectory={activeTrajectory}
-        cameraPreset={cameraPreset}
-        trajectoryProgress={trajectoryProgress}
-      />
+      {appMode === 'satellites' ? (
+        <Suspense fallback={<p className="pt-24 text-center text-slate-300">Loading Earth Satellites…</p>}>
+          <SatelliteView />
+        </Suspense>
+      ) : (
+        <ThreeViewport
+          ref={viewportRef}
+          appMode={appMode}
+          ephemeris={ephemeris}
+          referenceFrame={referenceFrame}
+          scaleMode={scaleMode}
+          showSunEarthLagrange={showSunEarthLagrange}
+          showEarthMoonLagrange={showEarthMoonLagrange}
+          showEarthOrbit={showEarthOrbit}
+          showMoonOrbit={showMoonOrbit}
+          showComposedMoonSunOrbit={showComposedMoonSunOrbit}
+          showLunarSOI={showLunarSOI}
+          showAtmosphereGlow={showAtmosphereGlow}
+          showGeocentricSolarOrbit={showGeocentricSolarOrbit}
+          showEarthUmbraShadow={showEarthUmbraShadow}
+          showGeoLeoBelts={showGeoLeoBelts}
+          showLineOfNodes={showLineOfNodes}
+          showAsteroidBelt={showAsteroidBelt}
+          showPlanetaryOrbits={showPlanetaryOrbits}
+          showPlanetLabels={showPlanetLabels}
+          selectedSpaceport={selectedSpaceport}
+          activeRocket={activeRocket}
+          rocketTelemetry={rocketTelemetry}
+          boosterReturn={boosterReturn}
+          showBoosterInset={showBoosterInset}
+          boosterPhase={boosterSample?.phase}
+          activeTrajectory={activeTrajectory}
+          cameraPreset={cameraPreset}
+          trajectoryProgress={trajectoryProgress}
+        />
+      )}
 
       <Header
         appMode={appMode}
@@ -365,7 +373,7 @@ export function App() {
         />
       )}
 
-      {appMode !== 'launch' && (
+      {(appMode === 'system' || appMode === 'transfer') && (
         <TimeControls
           isPlaying={isPlaying}
           onTogglePlay={() => setIsPlaying(!isPlaying)}
@@ -376,13 +384,15 @@ export function App() {
         />
       )}
 
-      <ZoomControls
-        onZoomIn={() => viewportRef.current?.zoomIn()}
-        onZoomOut={() => viewportRef.current?.zoomOut()}
-        onResetZoom={() => viewportRef.current?.resetZoom()}
-        isDecluttered={isDecluttered}
-        onToggleDeclutter={handleToggleDeclutter}
-      />
+      {appMode !== 'satellites' && (
+        <ZoomControls
+          onZoomIn={() => viewportRef.current?.zoomIn()}
+          onZoomOut={() => viewportRef.current?.zoomOut()}
+          onResetZoom={() => viewportRef.current?.resetZoom()}
+          isDecluttered={isDecluttered}
+          onToggleDeclutter={handleToggleDeclutter}
+        />
+      )}
 
       <InfoModal isOpen={isInfoOpen} onClose={() => setIsInfoOpen(false)} />
       <FlightChartModal isOpen={isChartsOpen} onClose={() => setIsChartsOpen(false)} />

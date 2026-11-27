@@ -1,12 +1,14 @@
 import { DWARF_PLANET_CONFIGS } from '../../physics/constants';
 import { PLANETARY_MOONS } from '../../physics/planetaryMoons.ts';
 import React from 'react';
-import { Orbit, Rocket, Compass, Eye, EyeOff, Info, BarChart3, RotateCcw } from 'lucide-react';
+import { Orbit, Rocket, Compass, Satellite, Eye, EyeOff, Info, BarChart3, RotateCcw } from 'lucide-react';
 import type { ActiveAppMode, CameraPreset } from '../canvas/ThreeViewport';
 
+export type AppMode = ActiveAppMode | 'satellites';
+
 interface HeaderProps {
-  appMode: ActiveAppMode;
-  onSelectMode: (mode: ActiveAppMode) => void;
+  appMode: AppMode;
+  onSelectMode: (mode: AppMode) => void;
   cameraPreset: CameraPreset;
   supportsBoosterReturn: boolean;
   onSelectCamera: (preset: CameraPreset) => void;
@@ -89,63 +91,74 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">Earth-Moon Trajectory</span>
           <span className="md:hidden">Transfer</span>
         </button>
+        <button
+          onClick={() => onSelectMode('satellites')}
+          aria-label="Earth Satellites"
+          aria-pressed={appMode === 'satellites'}
+          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium ${appMode === 'satellites' ? 'bg-sky-700 text-white' : 'text-gray-400 hover:bg-gray-800/50 hover:text-gray-200'}`}
+        >
+          <Satellite className="h-4 w-4" />
+          <span className="hidden sm:inline">Satellites</span>
+        </button>
       </div>
 
       <div className="flex items-center space-x-2">
-        <div className="flex items-center space-x-1 bg-gray-900/80 border border-gray-800 rounded-lg px-2 py-1 text-xs">
-          <Eye className="w-3.5 h-3.5 text-blue-400" />
-          <select
-            aria-label="Camera view"
-            value={cameraPreset}
-            onChange={(e) => onSelectCamera(e.target.value as CameraPreset)}
-            className="bg-transparent text-gray-200 text-xs focus:outline-none cursor-pointer"
-          >
-            <option value="free" className="bg-gray-900">Orbit View</option>
-            <optgroup label="Inner Solar System" className="bg-gray-900 font-semibold text-gray-400">
-              <option value="sun" className="bg-gray-900 text-gray-200">Focus Sun</option>
-              <option value="mercury" className="bg-gray-900 text-gray-200">Focus Mercury</option>
-              <option value="venus" className="bg-gray-900 text-gray-200">Focus Venus</option>
-              <option value="earth" className="bg-gray-900 text-gray-200">Focus Earth</option>
-              <option value="moon" className="bg-gray-900 text-gray-200">Focus Moon</option>
-              <option value="mars" className="bg-gray-900 text-gray-200">Focus Mars</option>
-            </optgroup>
-            <optgroup label="Outer Giants" className="bg-gray-900 font-semibold text-gray-400">
-              <option value="jupiter" className="bg-gray-900 text-gray-200">Focus Jupiter</option>
-              <option value="saturn" className="bg-gray-900 text-gray-200">Focus Saturn</option>
-              <option value="uranus" className="bg-gray-900 text-gray-200">Focus Uranus</option>
-              <option value="neptune" className="bg-gray-900 text-gray-200">Focus Neptune</option>
-            </optgroup>
-            {appMode === 'system' && <option value="asteroid_belt" className="bg-gray-900 text-gray-200">Asteroid Belt Overview</option>}
-            {appMode === 'system' && <option value="halley" className="bg-gray-900 text-gray-200">Focus Halley’s Comet</option>}
-            {appMode === 'system' && (
-              <optgroup label="Dwarf Planets" className="bg-gray-900 font-semibold text-gray-400">
-                {DWARF_PLANET_CONFIGS.map(({ key, name }) => (
-                  <option key={key} value={key} className="bg-gray-900 text-gray-200">Focus {name}</option>
-                ))}
+        {appMode !== 'satellites' && (
+          <div className="flex items-center space-x-1 bg-gray-900/80 border border-gray-800 rounded-lg px-2 py-1 text-xs">
+            <Eye className="w-3.5 h-3.5 text-blue-400" />
+            <select
+              aria-label="Camera view"
+              value={cameraPreset}
+              onChange={(e) => onSelectCamera(e.target.value as CameraPreset)}
+              className="bg-transparent text-gray-200 text-xs focus:outline-none cursor-pointer"
+            >
+              <option value="free" className="bg-gray-900">Orbit View</option>
+              <optgroup label="Inner Solar System" className="bg-gray-900 font-semibold text-gray-400">
+                <option value="sun" className="bg-gray-900 text-gray-200">Focus Sun</option>
+                <option value="mercury" className="bg-gray-900 text-gray-200">Focus Mercury</option>
+                <option value="venus" className="bg-gray-900 text-gray-200">Focus Venus</option>
+                <option value="earth" className="bg-gray-900 text-gray-200">Focus Earth</option>
+                <option value="moon" className="bg-gray-900 text-gray-200">Focus Moon</option>
+                <option value="mars" className="bg-gray-900 text-gray-200">Focus Mars</option>
               </optgroup>
-            )}
-            {appMode === 'system' && (
-              <optgroup label="Planetary Moons" className="bg-gray-900 font-semibold text-gray-400">
-                {PLANETARY_MOONS.map(({ key, name }) => (
-                  <option key={key} value={key} className="bg-gray-900 text-gray-200">Focus {name}</option>
-                ))}
+              <optgroup label="Outer Giants" className="bg-gray-900 font-semibold text-gray-400">
+                <option value="jupiter" className="bg-gray-900 text-gray-200">Focus Jupiter</option>
+                <option value="saturn" className="bg-gray-900 text-gray-200">Focus Saturn</option>
+                <option value="uranus" className="bg-gray-900 text-gray-200">Focus Uranus</option>
+                <option value="neptune" className="bg-gray-900 text-gray-200">Focus Neptune</option>
               </optgroup>
-            )}
-            <optgroup label="Mission Views" className="bg-gray-900 font-semibold text-gray-400">
-              <option value="spaceport" className="bg-gray-900 text-gray-200">Launchpad Cam</option>
-              {appMode === 'launch' && (
-                <>
-                  <option value="rocket_closeup" className="bg-gray-900">Rocket Close-up</option>
-                  {supportsBoosterReturn && <option value="booster" className="bg-gray-900">Follow Super Heavy</option>}
-                  <option value="launch_overview" className="bg-gray-900">Launch Overview</option>
-                </>
+              {appMode === 'system' && <option value="asteroid_belt" className="bg-gray-900 text-gray-200">Asteroid Belt Overview</option>}
+              {appMode === 'system' && <option value="halley" className="bg-gray-900 text-gray-200">Focus Halley’s Comet</option>}
+              {appMode === 'system' && (
+                <optgroup label="Dwarf Planets" className="bg-gray-900 font-semibold text-gray-400">
+                  {DWARF_PLANET_CONFIGS.map(({ key, name }) => (
+                    <option key={key} value={key} className="bg-gray-900 text-gray-200">Focus {name}</option>
+                  ))}
+                </optgroup>
               )}
-              <option value="rocket" className="bg-gray-900 text-gray-200">Chase Rocket</option>
-              <option value="earthrise" className="bg-gray-900 text-gray-200">Moon Earthrise</option>
-              <option value="infographic" className="bg-gray-900 text-gray-200">Artemis / Infographic View</option>
-            </optgroup>
-          </select>
-        </div>
+              {appMode === 'system' && (
+                <optgroup label="Planetary Moons" className="bg-gray-900 font-semibold text-gray-400">
+                  {PLANETARY_MOONS.map(({ key, name }) => (
+                    <option key={key} value={key} className="bg-gray-900 text-gray-200">Focus {name}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Mission Views" className="bg-gray-900 font-semibold text-gray-400">
+                <option value="spaceport" className="bg-gray-900 text-gray-200">Launchpad Cam</option>
+                {appMode === 'launch' && (
+                  <>
+                    <option value="rocket_closeup" className="bg-gray-900">Rocket Close-up</option>
+                    {supportsBoosterReturn && <option value="booster" className="bg-gray-900">Follow Super Heavy</option>}
+                    <option value="launch_overview" className="bg-gray-900">Launch Overview</option>
+                  </>
+                )}
+                <option value="rocket" className="bg-gray-900 text-gray-200">Chase Rocket</option>
+                <option value="earthrise" className="bg-gray-900 text-gray-200">Moon Earthrise</option>
+                <option value="infographic" className="bg-gray-900 text-gray-200">Artemis / Infographic View</option>
+              </optgroup>
+            </select>
+          </div>
+        )}
 
         {appMode === 'launch' && (
           <button
@@ -157,7 +170,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {onToggleDeclutter && (
+        {appMode !== 'satellites' && onToggleDeclutter && (
           <button
             onClick={onToggleDeclutter}
             className={`p-1.5 rounded-lg transition-colors border ${
@@ -171,13 +184,15 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        <button
-          onClick={onResetSimulation}
-          className="p-1.5 text-gray-300 hover:text-white bg-gray-900/80 hover:bg-gray-800 border border-gray-800 rounded-lg transition-colors"
-          title="Reset Simulation"
-        >
-          <RotateCcw className="w-4 h-4" />
-        </button>
+        {appMode !== 'satellites' && (
+          <button
+            onClick={onResetSimulation}
+            className="p-1.5 text-gray-300 hover:text-white bg-gray-900/80 hover:bg-gray-800 border border-gray-800 rounded-lg transition-colors"
+            title="Reset Simulation"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+        )}
 
         <button
           onClick={onOpenInfo}
