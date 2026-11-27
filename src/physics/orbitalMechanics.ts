@@ -91,6 +91,10 @@ const LAGRANGE_POSITIONS = {
   'Sun-Earth': collinearLagrangeFractions(SUN.mass, EARTH.mass),
 };
 
+export function lagrangeFractions(system: LagrangePoint['system']) {
+  return [...LAGRANGE_POSITIONS[system], [0.5, Math.sqrt(3) / 2], [0.5, -Math.sqrt(3) / 2]] as const;
+}
+
 const LAGRANGE_DESCRIPTIONS = [
   'Between the two bodies', 'Beyond the secondary', 'Beyond the primary',
   'Leading triangular equilibrium point', 'Trailing triangular equilibrium point',
@@ -101,7 +105,7 @@ function getLagrangePoints(relativePosition: Vector3D, relativeVelocity: Vector3
   const radial = normalize(relativePosition);
   const orbitalPole = normalize(crossProduct(relativePosition, relativeVelocity));
   const transverse = crossProduct(orbitalPole, radial);
-  const fractions = [...LAGRANGE_POSITIONS[system], [0.5, Math.sqrt(3) / 2], [0.5, -Math.sqrt(3) / 2]];
+  const fractions = lagrangeFractions(system);
 
   return LAGRANGE_POINT_NAMES.map((name, index) => {
     const [x, y] = fractions[index];

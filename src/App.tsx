@@ -5,6 +5,8 @@ import type { CameraPreset, ThreeViewportHandle } from './components/canvas/Thre
 import { Header, type AppMode } from './components/ui/Header';
 import { TimeControls } from './components/ui/TimeControls';
 import { SystemViewControls } from './components/ui/SystemViewControls';
+import { WebbLab } from './components/ui/WebbLab';
+import { useWebbLab } from './components/ui/useWebbLab';
 import { LaunchViewControls } from './components/ui/LaunchViewControls';
 import { TrajectoryPlanner } from './components/ui/TrajectoryPlanner';
 import { MissionInfographicLegend } from './components/ui/MissionInfographicLegend';
@@ -101,6 +103,8 @@ export function App() {
   const boosterElapsed = boosterReturnElapsed(rocketTelemetry);
   const boosterSample = boosterReturn?.sample(boosterElapsed);
   const boosterInFlight = boosterReturn !== undefined && boosterElapsed < boosterReturn.endTime;
+  const webbLab = useWebbLab();
+  const webbLabOpen = webbLab.open && appMode === 'system';
   const ephemeris = getEphemerisState(simTimeSeconds);
 
   useEffect(() => {
@@ -112,7 +116,7 @@ export function App() {
       lastTimestamp = timestamp;
 
       if (isPlaying) {
-        if (appMode === 'system') {
+        if (appMode === 'system' && !webbLabOpen) {
           const dtSim = realDt * timeWarp * 3600;
           setSimTimeSeconds((prev) => prev + dtSim);
         } else if (appMode === 'transfer') {
@@ -154,10 +158,11 @@ export function App() {
 
     animFrame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrame);
-  }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, orbitTargetAltitude, rocketTelemetry.phase, boosterInFlight]);
+  }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, orbitTargetAltitude, rocketTelemetry.phase, boosterInFlight, webbLabOpen]);
 
   const handleSelectMode = (mode: AppMode) => {
     setAppMode(mode);
+    if (mode !== 'system') webbLab.controls.onClose();
     if (mode === 'system') {
       setCameraPreset('free');
     } else if (mode === 'launch') {
@@ -234,6 +239,7 @@ export function App() {
           activeTrajectory={activeTrajectory}
           cameraPreset={cameraPreset}
           trajectoryProgress={trajectoryProgress}
+          webbExercise={webbLabOpen ? webbLab.scene : undefined}
         />
       )}
 
@@ -243,6 +249,7 @@ export function App() {
         cameraPreset={cameraPreset}
         supportsBoosterReturn={activeRocket.id === SUPER_HEAVY_PRESET_ID}
         onSelectCamera={preset => {
+          if (webbLabOpen) webbLab.controls.onClose();
           if (preset === 'asteroid_belt') setShowAsteroidBelt(true);
           setCameraPreset(preset);
         }}
@@ -253,8 +260,10 @@ export function App() {
         onToggleDeclutter={handleToggleDeclutter}
       />
 
-      {appMode === 'system' && (
+      {webbLabOpen && <WebbLab scene={webbLab.scene} {...webbLab.controls} />}
+      {appMode === 'system' && !webbLabOpen && (
         <SystemViewControls
+          onOpenWebbLab={webbLab.show}
           referenceFrame={referenceFrame}
           onChangeFrame={setReferenceFrame}
           scaleMode={scaleMode}
@@ -373,7 +382,7 @@ export function App() {
         />
       )}
 
-      {(appMode === 'system' || appMode === 'transfer') && (
+      {((appMode === 'system' && !webbLabOpen) || appMode === 'transfer') && (
         <TimeControls
           isPlaying={isPlaying}
           onTogglePlay={() => setIsPlaying(!isPlaying)}

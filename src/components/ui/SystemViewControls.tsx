@@ -9,6 +9,7 @@ interface SystemViewControlsProps {
   onChangeScale: (scale: ScaleMode) => void;
   showEarthMoonLagrange: boolean;
   showSunEarthLagrange: boolean;
+  onOpenWebbLab: () => void;
   onToggleSunEarthLagrange: () => void;
   onToggleEarthMoonLagrange: () => void;
   showEarthOrbit: boolean;
@@ -48,6 +49,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   onChangeScale,
   showEarthMoonLagrange,
   showSunEarthLagrange,
+  onOpenWebbLab,
   onToggleSunEarthLagrange,
   onToggleEarthMoonLagrange,
   showEarthOrbit,
@@ -359,6 +361,13 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
           <input type="checkbox" checked={showEarthMoonLagrange} onChange={onToggleEarthMoonLagrange} className="h-4 w-4 cursor-pointer accent-blue-500" />
         </label>
 
+        <button
+          type="button"
+          onClick={onOpenWebbLab}
+          className="w-full rounded-lg border border-amber-800/60 bg-amber-950/30 px-2 py-1.5 text-left text-amber-200 hover:bg-amber-900/50"
+        >
+          Open Webb Lagrange lab
+        </button>
         <button
           type="button"
           onClick={onViewHalley}

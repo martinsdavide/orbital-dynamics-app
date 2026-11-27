@@ -9,6 +9,8 @@ import { LaunchPaths } from './LaunchPaths';
 import { createAsteroidBelt } from './AsteroidBelt';
 import { createHalleyComet } from './HalleyComet';
 import { ViewportBillboard } from './ViewportBillboard';
+import { createWebbLabScene } from './WebbLabScene';
+import type { WebbSceneState } from '../../physics/webbLab';
 import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey, LagrangePoint } from '../../types/celestial';
 import { calculatePlanetaryMoonPosition, PLANETARY_MOONS, type PlanetaryMoonKey } from '../../physics/planetaryMoons.ts';
 import type { Spaceport } from '../../types/spaceport';
@@ -197,6 +199,7 @@ interface ThreeViewportProps {
   activeTrajectory: EarthMoonTrajectory | null;
   cameraPreset: CameraPreset;
   trajectoryProgress: number;
+  webbExercise?: WebbSceneState;
 }
 
 export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>((props, ref) => {
@@ -228,9 +231,12 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     activeTrajectory,
     cameraPreset,
     trajectoryProgress,
+    webbExercise,
   } = props;
   const mountRef = useRef<HTMLDivElement>(null);
   const boosterInsetRef = useRef<HTMLDivElement>(null);
+  const webbSceneRef = useRef<ReturnType<typeof createWebbLabScene> | null>(null);
+  const webbCameraRef = useRef<{ focus: string; scale: ScaleMode; radius: number; previous: { radius: number; theta: number; phi: number } } | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const halleyRef = useRef<ReturnType<typeof createHalleyComet> | null>(null);
   const asteroidBeltRef = useRef<ReturnType<typeof createAsteroidBelt> | null>(null);
@@ -335,6 +341,10 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       resetZoom: () => {
         if (closeupRef.current) {
           closeupZoomRef.current = 1;
+          return;
+        }
+        if (webbCameraRef.current) {
+          targetRadiusRef.current = webbCameraRef.current.radius;
           return;
         }
         const scales = getScalingConfig(scaleMode);
@@ -489,6 +499,9 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     earthTex.colorSpace = THREE.SRGBColorSpace;
     earthTex.wrapS = THREE.RepeatWrapping;
     earthTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const webbScene = createWebbLabScene(earthTex);
+    scene.add(webbScene.group);
+    webbSceneRef.current = webbScene;
     const earthRadius = SCALING.visual.earthRadius;
     const earthGeo = new THREE.SphereGeometry(earthRadius, 96, 64);
     const earthMat = new THREE.MeshStandardMaterial({
@@ -1261,6 +1274,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
         dom.removeChild(rendererRef.current.domElement);
         rendererRef.current.dispose();
       }
+      webbScene.dispose();
+      webbSceneRef.current = null;
       earthTex.dispose();
       earthGeo.dispose();
       earthMat.dispose();
@@ -1490,10 +1505,17 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     const currentEarthWorldPos = earthHeliocentric.clone().add(sunWorldPos);
     const currentMoonWorldPos = currentEarthWorldPos.clone().add(moonRelativeToEarth);
 
-    earthGroupRef.current?.position.copy(currentEarthWorldPos);
+    const lab = appMode === 'system' ? webbExercise : undefined;
+    const webbScene = webbSceneRef.current;
+    const { x, y, z } = ephemeris.earth.velocity;
+    webbScene?.update(lab, sunWorldPos, earthHeliocentric, new THREE.Vector3(x, y, z));
+    if (earthGroupRef.current) {
+      earthGroupRef.current.position.copy(currentEarthWorldPos);
+      earthGroupRef.current.visible = !lab;
+    }
     if (moonGroupRef.current) {
       moonGroupRef.current.position.copy(currentMoonWorldPos);
-      moonGroupRef.current.visible = true;
+      moonGroupRef.current.visible = !lab;
     }
     if (sunMeshRef.current) {
       sunMeshRef.current.position.copy(sunWorldPos);
@@ -1626,8 +1648,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
 
     const lagrangeGroups = lagrangeGroupsRef.current;
     if (lagrangeGroups) {
-      lagrangeGroups['Earth-Moon'].visible = showEarthMoonLagrange && appMode === 'system';
-      lagrangeGroups['Sun-Earth'].visible = showSunEarthLagrange && appMode === 'system';
+      lagrangeGroups['Earth-Moon'].visible = showEarthMoonLagrange && appMode === 'system' && !lab;
+      lagrangeGroups['Sun-Earth'].visible = showSunEarthLagrange && appMode === 'system' && !lab;
       for (const point of ephemeris.lagrangePoints) {
         const marker = lagrangeGroups[point.system].getObjectByName(point.name);
         if (!marker) continue;
@@ -1909,7 +1931,22 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     const focusedMoon = moonRenderNodesRef.current.get(cameraPreset);
     if (cameraPreset !== 'spaceport') spaceportCameraTargetRef.current = null;
     if (cameraPreset !== 'asteroid_belt') beltOverviewRef.current = null;
-    if (cameraPreset === 'asteroid_belt') {
+    if (!lab && webbCameraRef.current) {
+      cameraSphericalRef.current = webbCameraRef.current.previous;
+      targetRadiusRef.current = cameraSphericalRef.current.radius;
+      webbCameraRef.current = null;
+    }
+    if (lab && webbScene) {
+      cameraTargetRef.current.copy(webbScene.focus);
+      const saved = webbCameraRef.current;
+      if (!saved || saved.focus !== lab.focus || saved.scale !== scaleMode) {
+        const extent = lab.focus === 'L4' || lab.focus === 'L5' ? 0.008 : 0.04;
+        const radius = extent * earthHeliocentric.length() / Math.min(1, camera?.aspect ?? 1);
+        webbCameraRef.current = { focus: lab.focus, scale: scaleMode, radius, previous: saved?.previous ?? { ...cameraSphericalRef.current } };
+        cameraSphericalRef.current = { radius, theta: 0, phi: 0.09 };
+        targetRadiusRef.current = radius;
+      }
+    } else if (cameraPreset === 'asteroid_belt') {
       cameraTargetRef.current.copy(sunWorldPos);
       if (beltOverviewRef.current !== scaleMode) {
         beltOverviewRef.current = scaleMode;
@@ -2026,6 +2063,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     activeTrajectory,
     cameraPreset,
     trajectoryProgress,
+    webbExercise,
   ]);
 
   return (
