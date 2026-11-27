@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { archivedIss, readIssFeed, sampleSatellite, sampleSatellitePaths, satelliteEpoch, satellitePeriodMinutes } from '../satellites.ts';
+import { archivedIss, readIssFeed, readSatelliteCatalog, sampleCatalogPoints, sampleSatellite, sampleSatellitePaths, satelliteEpoch, satellitePeriodMinutes } from '../satellites.ts';
 
 test('ISS telemetry matches independent SGP4 and WGS84 reference values at a fixed UTC time', () => {
   // Cross-checked using Python sgp4 2.27 and a WGS84 geodetic conversion.
@@ -38,4 +38,21 @@ test('The ISS feed accepts CelesTrak OMM elements and rejects malformed or unrel
   assert.equal(feed?.record.satnum, '25544');
   assert.equal(readIssFeed({ elements: { ...elements, NORAD_CAT_ID: 1 }, fetchedAt }), undefined);
   assert.equal(readIssFeed({ elements: { ...elements, MEAN_MOTION: 'invalid' }, fetchedAt }), undefined);
+});
+
+test('Constellation points match the selected marker and omit expired or malformed records', () => {
+  const row = ['STARLINK EXAMPLE', 60000, '2019-06-05T12:12:58.000000', 15.51174618, 0.0008217,
+    51.6433, 59.2583, 16.4489, 347.6017, 0.000059442, 0.00003075, 0];
+  const catalog = readSatelliteCatalog({
+    fetchedAt: '2019-06-05T13:00:00Z',
+    elements: [row, row, ['invalid'], ['Older example', 60001, '2019-05-05T12:12:58.000000', ...row.slice(3)]],
+  });
+  assert.ok(catalog);
+  assert.deepEqual(catalog.satellites.map(satellite => satellite.id), ['60000', '60001']);
+  const time = Date.parse('2019-06-05T13:00:00Z');
+  const points = sampleCatalogPoints(catalog.satellites.map(satellite => satellite.record), time);
+  assert.equal(points.length, 3);
+  const marker = sampleSatellite(catalog.satellites[0].record, time);
+  assert.ok(marker);
+  for (let i = 0; i < 3; i++) assert.ok(Math.abs(points[i] - marker.point[i]) < 1e-7);
 });
