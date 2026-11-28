@@ -8,6 +8,7 @@ import { LAUNCH_MODEL_SCALE, LaunchVehicle } from './LaunchVehicle';
 import { LaunchPaths } from './LaunchPaths';
 import { createAsteroidBelt } from './AsteroidBelt';
 import { createHalleyComet } from './HalleyComet';
+import { HALLEY_PERIHELION_SECONDS } from '../../physics/halley';
 import { ViewportBillboard } from './ViewportBillboard';
 import type { EphemerisState, ReferenceFrame, ScaleMode, PlanetKey, LagrangePoint } from '../../types/celestial';
 import { calculatePlanetaryMoonPosition, PLANETARY_MOONS, type PlanetaryMoonKey } from '../../physics/planetaryMoons.ts';
@@ -198,6 +199,8 @@ interface ThreeViewportProps {
   activeTrajectory: EarthMoonTrajectory | null;
   cameraPreset: CameraPreset;
   trajectoryProgress: number;
+  halleyLabActive: boolean;
+  showHalleyLabArrows: boolean;
 }
 
 export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>((props, ref) => {
@@ -229,10 +232,13 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     activeTrajectory,
     cameraPreset,
     trajectoryProgress,
+    halleyLabActive,
+    showHalleyLabArrows,
   } = props;
   const mountRef = useRef<HTMLDivElement>(null);
   const boosterInsetRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const halleyLabCameraRef = useRef<{ radius: number; theta: number; phi: number } | null>(null);
   const halleyRef = useRef<ReturnType<typeof createHalleyComet> | null>(null);
   const asteroidBeltRef = useRef<ReturnType<typeof createAsteroidBelt> | null>(null);
   const beltOverviewRef = useRef<ScaleMode | null>(null);
@@ -1426,7 +1432,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     // Trails exactly up to 1 Earth orbital revolution (365.25 days).
     // As soon as 1 revolution completes, older trail points gradually fade and dissolve,
     // seamlessly replaced by the new forming orbital cycle.
-    if (composedMoonSunLineRef.current && appMode === 'system' && referenceFrame === 'heliocentric' && showComposedMoonSunOrbit) {
+    if (composedMoonSunLineRef.current && appMode === 'system' && referenceFrame === 'heliocentric' && showComposedMoonSunOrbit && !halleyLabActive) {
       const composedMoonPts: THREE.Vector3[] = [];
       const colorArr: number[] = [];
       const totalSteps = 1200;
@@ -1487,7 +1493,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       halley.group.visible = appMode === 'system';
       if (halley.group.visible) {
         halley.group.position.copy(sunWorldPos);
-        halley.update(ephemeris.timeSeconds, sunDist, showPlanetaryOrbits, showPlanetLabels);
+        halley.update(ephemeris.timeSeconds, sunDist, halleyLabActive || showPlanetaryOrbits,
+          halleyLabActive || showPlanetLabels, halleyLabActive && showHalleyLabArrows);
       }
     }
     const currentEarthWorldPos = earthHeliocentric.clone().add(sunWorldPos);
@@ -1513,7 +1520,7 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
       }
       if (composedMoonSunLineRef.current) {
         composedMoonSunLineRef.current.position.set(0, 0, 0);
-        composedMoonSunLineRef.current.visible = showComposedMoonSunOrbit && appMode === 'system';
+        composedMoonSunLineRef.current.visible = showComposedMoonSunOrbit && appMode === 'system' && !halleyLabActive;
       }
       if (geocentricSolarOrbitLineRef.current) geocentricSolarOrbitLineRef.current.visible = false;
       if (earthUmbraShadowConeRef.current) earthUmbraShadowConeRef.current.visible = false;
@@ -1912,7 +1919,28 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     const focusedMoon = moonRenderNodesRef.current.get(cameraPreset);
     if (cameraPreset !== 'spaceport') spaceportCameraTargetRef.current = null;
     if (cameraPreset !== 'asteroid_belt') beltOverviewRef.current = null;
-    if (cameraPreset === 'asteroid_belt') {
+    if (!halleyLabActive && halleyLabCameraRef.current) {
+      cameraSphericalRef.current = halleyLabCameraRef.current;
+      targetRadiusRef.current = cameraSphericalRef.current.radius;
+      halleyLabCameraRef.current = null;
+    }
+    if (halleyLabActive && halley) {
+      const distanceAu = halley.nucleus.position.length() / sunDist;
+      const overview = THREE.MathUtils.smoothstep(distanceAu, 1.6, 5);
+      const aspect = Math.min(1, camera?.aspect ?? 1);
+      const outbound = ephemeris.timeSeconds > HALLEY_PERIHELION_SECONDS
+        ? THREE.MathUtils.smoothstep(distanceAu, 0.75, 1.2) : 0;
+      const distance = sunDist * THREE.MathUtils.lerp(
+        (1.05 + 1.25 * outbound) / aspect, distanceAu * 1.55 / aspect, overview,
+      );
+      const framing = 1 - Math.max(overview * 0.48, outbound * 0.42);
+      cameraTargetRef.current.copy(halley.nucleus.position).multiplyScalar(framing).add(sunWorldPos);
+      if (!halleyLabCameraRef.current) {
+        halleyLabCameraRef.current = { ...cameraSphericalRef.current };
+        cameraSphericalRef.current = { radius: distance, theta: 0.5, phi: 0.32 };
+      }
+      targetRadiusRef.current = distance;
+    } else if (cameraPreset === 'asteroid_belt') {
       cameraTargetRef.current.copy(sunWorldPos);
       if (beltOverviewRef.current !== scaleMode) {
         beltOverviewRef.current = scaleMode;
@@ -2029,6 +2057,8 @@ export const ThreeViewport = forwardRef<ThreeViewportHandle, ThreeViewportProps>
     activeTrajectory,
     cameraPreset,
     trajectoryProgress,
+    halleyLabActive,
+    showHalleyLabArrows,
   ]);
 
   return (

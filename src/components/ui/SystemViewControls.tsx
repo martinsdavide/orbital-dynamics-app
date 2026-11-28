@@ -36,6 +36,7 @@ interface SystemViewControlsProps {
   showPlanetLabels?: boolean;
   onTogglePlanetLabels?: () => void;
   onViewHalley: () => void;
+  onOpenHalleyLab: () => void;
   ephemeris: EphemerisState;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -75,6 +76,7 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
   showPlanetLabels = true,
   onTogglePlanetLabels,
   onViewHalley,
+  onOpenHalleyLab,
   ephemeris,
   isCollapsed,
   onToggleCollapse,
@@ -358,6 +360,14 @@ export const SystemViewControls: React.FC<SystemViewControlsProps> = ({
           </span>
           <input type="checkbox" checked={showEarthMoonLagrange} onChange={onToggleEarthMoonLagrange} className="h-4 w-4 cursor-pointer accent-blue-500" />
         </label>
+
+        <button
+          type="button"
+          onClick={onOpenHalleyLab}
+          className="w-full rounded-lg border border-sky-800 bg-sky-950/50 px-2 py-1.5 text-left font-semibold text-sky-200 hover:bg-sky-900/50"
+        >
+          Halley’s Big Trip
+        </button>
 
         <button
           type="button"

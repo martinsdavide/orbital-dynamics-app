@@ -5,6 +5,8 @@ import type { CameraPreset, ThreeViewportHandle } from './components/canvas/Thre
 import { Header, type AppMode } from './components/ui/Header';
 import { TimeControls } from './components/ui/TimeControls';
 import { SystemViewControls } from './components/ui/SystemViewControls';
+import { HalleyLab } from './components/ui/HalleyLab';
+import { useHalleyLab } from './components/ui/useHalleyLab';
 import { LaunchViewControls } from './components/ui/LaunchViewControls';
 import { TrajectoryPlanner } from './components/ui/TrajectoryPlanner';
 import { MissionInfographicLegend } from './components/ui/MissionInfographicLegend';
@@ -101,7 +103,8 @@ export function App() {
   const boosterElapsed = boosterReturnElapsed(rocketTelemetry);
   const boosterSample = boosterReturn?.sample(boosterElapsed);
   const boosterInFlight = boosterReturn !== undefined && boosterElapsed < boosterReturn.endTime;
-  const ephemeris = getEphemerisState(simTimeSeconds);
+  const halleyLab = useHalleyLab();
+  const ephemeris = getEphemerisState(halleyLab.open ? halleyLab.time : simTimeSeconds);
 
   useEffect(() => {
     let animFrame: number;
@@ -112,7 +115,7 @@ export function App() {
       lastTimestamp = timestamp;
 
       if (isPlaying) {
-        if (appMode === 'system') {
+        if (appMode === 'system' && !halleyLab.open) {
           const dtSim = realDt * timeWarp * 3600;
           setSimTimeSeconds((prev) => prev + dtSim);
         } else if (appMode === 'transfer') {
@@ -154,10 +157,11 @@ export function App() {
 
     animFrame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animFrame);
-  }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, orbitTargetAltitude, rocketTelemetry.phase, boosterInFlight]);
+  }, [isPlaying, timeWarp, launchRate, isLaunchPlaying, appMode, activeRocket, selectedSpaceport, userThrottle, autoGuidance, manualPitch, orbitTargetAltitude, rocketTelemetry.phase, boosterInFlight, halleyLab.open]);
 
   const handleSelectMode = (mode: AppMode) => {
     setAppMode(mode);
+    if (mode !== 'system') halleyLab.close();
     if (mode === 'system') {
       setCameraPreset('free');
     } else if (mode === 'launch') {
@@ -234,6 +238,8 @@ export function App() {
           activeTrajectory={activeTrajectory}
           cameraPreset={cameraPreset}
           trajectoryProgress={trajectoryProgress}
+          halleyLabActive={halleyLab.open}
+          showHalleyLabArrows={halleyLab.showArrows}
         />
       )}
 
@@ -243,18 +249,21 @@ export function App() {
         cameraPreset={cameraPreset}
         supportsBoosterReturn={activeRocket.id === SUPER_HEAVY_PRESET_ID}
         onSelectCamera={preset => {
+          if (halleyLab.open) halleyLab.close();
           if (preset === 'asteroid_belt') setShowAsteroidBelt(true);
           setCameraPreset(preset);
         }}
         onOpenInfo={() => setIsInfoOpen(true)}
         onOpenCharts={() => setIsChartsOpen(true)}
-        onResetSimulation={handleResetSimulation}
+        onResetSimulation={halleyLab.open ? halleyLab.restart : handleResetSimulation}
         isDecluttered={isDecluttered}
         onToggleDeclutter={handleToggleDeclutter}
       />
 
-      {appMode === 'system' && (
+      {halleyLab.open && <HalleyLab lab={halleyLab} />}
+      {appMode === 'system' && !halleyLab.open && (
         <SystemViewControls
+          onOpenHalleyLab={halleyLab.start}
           referenceFrame={referenceFrame}
           onChangeFrame={setReferenceFrame}
           scaleMode={scaleMode}
@@ -373,7 +382,7 @@ export function App() {
         />
       )}
 
-      {(appMode === 'system' || appMode === 'transfer') && (
+      {((appMode === 'system' && !halleyLab.open) || appMode === 'transfer') && (
         <TimeControls
           isPlaying={isPlaying}
           onTogglePlay={() => setIsPlaying(!isPlaying)}

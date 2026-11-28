@@ -10,10 +10,27 @@ export const HALLEY_PERIHELION_SECONDS =
 
 // Use Saturn’s mean orbital radius and the inbound branch of Halley’s orbit.
 const saturnOrbit = PLANET_CONFIGS.find(planet => planet.key === 'saturn')!;
-const inboundEccentricAnomaly = -Math.acos((1 - saturnOrbit.semiMajorAxis / semiMajorAxis) / eccentricity);
-const inboundMeanAnomaly = inboundEccentricAnomaly - eccentricity * Math.sin(inboundEccentricAnomaly);
+function halleyTimeFromPerihelionAtDistance(distance: number) {
+  const anomaly = Math.acos((1 - distance / semiMajorAxis) / eccentricity);
+  return (anomaly - eccentricity * Math.sin(anomaly)) * HALLEY_PERIOD_SECONDS / (2 * Math.PI);
+}
+
 export const HALLEY_SATURN_DISTANCE_SECONDS =
-  HALLEY_PERIHELION_SECONDS + inboundMeanAnomaly * HALLEY_PERIOD_SECONDS / (2 * Math.PI);
+  HALLEY_PERIHELION_SECONDS - halleyTimeFromPerihelionAtDistance(saturnOrbit.semiMajorAxis);
+export const HALLEY_ACTIVITY_APPROACH_SECONDS =
+  HALLEY_PERIHELION_SECONDS - halleyTimeFromPerihelionAtDistance(3 * EARTH.semiMajorAxis);
+export const HALLEY_OUTBOUND_LAB_SECONDS =
+  HALLEY_PERIHELION_SECONDS + halleyTimeFromPerihelionAtDistance(1.2 * EARTH.semiMajorAxis);
+
+export function halleyLabTime(stop: 0 | 1 | 2, progress: number) {
+  const interpolate = (start: number, end: number, fraction: number) => start + (end - start) * fraction;
+  if (stop === 0) return HALLEY_SATURN_DISTANCE_SECONDS;
+  if (stop === 2) return interpolate(HALLEY_PERIHELION_SECONDS, HALLEY_OUTBOUND_LAB_SECONDS, progress);
+  // Give the approach inside 3 AU enough screen time to see the tails grow.
+  return progress < 0.45
+    ? interpolate(HALLEY_SATURN_DISTANCE_SECONDS, HALLEY_ACTIVITY_APPROACH_SECONDS, progress / 0.45)
+    : interpolate(HALLEY_ACTIVITY_APPROACH_SECONDS, HALLEY_PERIHELION_SECONDS, (progress - 0.45) / 0.55);
+}
 
 export function calculateHalleyOrbit(timeSeconds: number) {
   // Fixed, approximate orbital elements for 1P/Halley, phased to the 2061 return.

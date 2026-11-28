@@ -104,6 +104,20 @@ export function createHalleyComet() {
   );
   group.add(path, comet);
 
+  const antiSolarArrow = new THREE.ArrowHelper(undefined, undefined, 1, 0x59ceff);
+  antiSolarArrow.name = 'Away from the Sun';
+  const motionArrow = new THREE.ArrowHelper(undefined, undefined, 1, 0x53ef9e);
+  motionArrow.name = 'Direction of travel';
+  for (const arrow of [antiSolarArrow, motionArrow]) {
+    arrow.visible = false;
+    for (const material of [arrow.line.material, arrow.cone.material].flat()) {
+      material.depthTest = false;
+      material.depthWrite = false;
+    }
+    arrow.line.renderOrder = arrow.cone.renderOrder = 10;
+    comet.add(arrow);
+  }
+  const travel = new THREE.Vector3();
   const radial = new THREE.Vector3();
   const trailing = new THREE.Vector3();
   const normal = new THREE.Vector3();
@@ -112,7 +126,7 @@ export function createHalleyComet() {
   return {
     group,
     nucleus: comet,
-    update(timeSeconds: number, sceneUnitsPerAu: number, showOrbit: boolean, showLabel: boolean) {
+    update(timeSeconds: number, sceneUnitsPerAu: number, showOrbit: boolean, showLabel: boolean, showDirections = false) {
       const { position, velocity } = calculateHalleyOrbit(timeSeconds);
       radial.set(position.x, position.y, position.z);
       const distanceAu = radial.length() / EARTH.semiMajorAxis;
@@ -121,6 +135,14 @@ export function createHalleyComet() {
       path.scale.setScalar(sceneUnitsPerAu);
       path.visible = showOrbit;
       label.visible = showLabel;
+      antiSolarArrow.visible = motionArrow.visible = showDirections;
+      if (showDirections) {
+        antiSolarArrow.setDirection(radial);
+        travel.set(velocity.x, velocity.y, velocity.z).normalize();
+        motionArrow.setDirection(travel);
+        const length = sceneUnitsPerAu * 0.30;
+        for (const arrow of [antiSolarArrow, motionArrow]) arrow.setLength(length, length * 0.18, length * 0.11);
+      }
 
       const activity = getHalleyActivity(distanceAu);
       coma.visible = tails.visible = activity > 0;
@@ -139,6 +161,8 @@ export function createHalleyComet() {
       coma.material.opacity = activity * 0.65;
     },
     dispose() {
+      antiSolarArrow.dispose();
+      motionArrow.dispose();
       path.geometry.dispose();
       path.material.dispose();
       for (const tail of [ion, dust]) {
